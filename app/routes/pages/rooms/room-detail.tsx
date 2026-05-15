@@ -10,6 +10,7 @@ import type {
   RoomInviteInfo,
 } from '@/features/openchat/openchat.types'
 
+import { isViteEnvFalse } from '@/lib/vite-env-flags'
 import { openchatDisplaySenderName } from '@/lib/openchat-display-name'
 import { canSenderCancelOwnMessage, countReadersForMessage, textMentionsNickname } from '@/lib/openchat-read-receipt'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
@@ -253,7 +254,7 @@ export default function RoomDetailPage() {
 
   const policyChip = policyChipFor(room.policy)
   const firestoreLive = useOpenchatFirestore()
-  const mockApiEnvOn = (import.meta.env.VITE_ENABLE_MOCK_API ?? 'true') !== 'false'
+  const mockApiEnvOn = !isViteEnvFalse(import.meta.env.VITE_ENABLE_MOCK_API)
   const showMockStorageNotice = !firestoreLive && mockApiEnvOn
   const [snapMessages, setSnapMessages] = useState<OpenChatMessage[] | undefined>(undefined)
 

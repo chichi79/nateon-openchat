@@ -173,7 +173,7 @@ npx firebase login
 3. `orderBy('createdAt')` 등으로 **복합 인덱스**가 필요하면 브라우저 콘솔 오류의 링크를 따라 콘솔에서 인덱스를 추가합니다.
 4. **Authentication → Settings → Authorized domains**에 `프로젝트명.vercel.app`(및 커스텀 도메인)을 추가합니다.
 
-**배포 후**: 방 화면 상단의 **데모(Mock) localStorage** 안내는 Firestore가 실제로 켜진 빌드에서는 표시되지 않습니다. 여전히 보이면 변수 철자·`true`/`false` 문자열·Redeploy 여부를 다시 확인하세요.
+**배포 후**: 방 화면 상단의 **데모(Mock) localStorage** 안내는 Firestore가 실제로 켜진 빌드에서는 표시되지 않습니다. 여전히 보이면 변수 철자·`true`/`false` 문자열·Redeploy 여부를 다시 확인하세요. 값에 **앞뒤 공백**이 있어도 이제 허용됩니다. 배포 사이트에서 F12 → Console에 `window.__OPENCHAT_BACKEND__` 를 입력하면 `firestoreLive`, `firebaseConfigured`, 원시 env 문자열(비밀 아님)을 확인할 수 있습니다.
 
 #### 4. 배포 후 확인
 

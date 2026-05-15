@@ -3,7 +3,8 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router'
 import type { Route } from './+types/root'
 import { RouteErrorFallback } from '@/components/route-error-fallback'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
-import { getFirebaseApp } from '@/firebase'
+import { getFirebaseApp, isFirebaseConfigured } from '@/firebase'
+import { isViteEnvFalse, isViteEnvTrue } from '@/lib/vite-env-flags'
 import { installMockFetch } from '@/mocks/install-mock-fetch'
 
 import '@/assets/styles/app.css'
@@ -15,8 +16,17 @@ void getFirebaseApp()
 const OPENCHAT_THEME_INIT = `(function(){try{var k='openchat-ui-theme';var s=localStorage.getItem(k);var t=s==='light'||s==='dark'?s:'dark';document.documentElement.style.colorScheme=t;document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.style.colorScheme='dark';document.documentElement.setAttribute('data-theme','dark');}})();`
 
 const firestoreLive = useOpenchatFirestore()
-const mockDisabled = (import.meta.env.VITE_ENABLE_MOCK_API ?? 'true') === 'false'
-const wantsFirestore = (import.meta.env.VITE_USE_FIRESTORE ?? 'false') === 'true'
+const mockDisabled = isViteEnvFalse(import.meta.env.VITE_ENABLE_MOCK_API)
+const wantsFirestore = isViteEnvTrue(import.meta.env.VITE_USE_FIRESTORE)
+
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { __OPENCHAT_BACKEND__?: Record<string, unknown> }).__OPENCHAT_BACKEND__ = {
+    firestoreLive,
+    firebaseConfigured: isFirebaseConfigured(),
+    viteUseFirestore: import.meta.env.VITE_USE_FIRESTORE,
+    viteEnableMockApi: import.meta.env.VITE_ENABLE_MOCK_API,
+  }
+}
 
 if (firestoreLive) {
   // Firestore만 사용 (SDK). `/api/openchat` 목 인터셉터는 설치하지 않음.
