@@ -37,3 +37,15 @@ export function ensureOpenchatClientId(): string {
   }
   return id
 }
+
+/** 채팅 말풍선 좌/우 구분 — 닉네임이 같아도 `senderClientId`가 있으면 그걸 우선 */
+export function isOpenchatMessageMine(
+  msg: { sender: string; senderClientId?: string },
+  myNickname: string,
+  myClientId: string | undefined,
+): boolean {
+  const msgCid = msg.senderClientId?.trim()
+  const myCid = myClientId?.trim()
+  if (msgCid && myCid) return msgCid === myCid
+  return msg.sender === myNickname
+}

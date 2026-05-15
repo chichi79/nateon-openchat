@@ -117,10 +117,13 @@ function roomFromSnap(id: string, data: Record<string, unknown>): OpenChatRoom {
 }
 
 function msgFromSnap(roomId: string, id: string, data: Record<string, unknown>): OpenChatMessage {
+  const senderClientIdRaw = data.senderClientId
   return {
     id,
     roomId,
     sender: String(data.sender ?? ''),
+    senderClientId:
+      typeof senderClientIdRaw === 'string' && senderClientIdRaw.trim() ? senderClientIdRaw.trim() : undefined,
     text: String(data.text ?? ''),
     replyToMessageId: data.replyToMessageId ? String(data.replyToMessageId) : undefined,
     attachments: Array.isArray(data.attachments) ? (data.attachments as OpenChatMessage['attachments']) : undefined,
@@ -375,11 +378,15 @@ export async function postMessage(
     if (!ps.exists()) throw new Error('답장 대상 메시지를 찾을 수 없어요.')
   }
 
+  const senderClientId =
+    (body.senderClientId ?? '').trim() || (clientId ?? '').trim() || undefined
+
   const id = uuid()
   const now = serverTimestamp()
   const mref = doc(messagesCol(roomId), id)
   await setDoc(mref, {
     sender,
+    ...(senderClientId ? { senderClientId } : {}),
     text,
     replyToMessageId: replyToId ?? null,
     attachments: attachments ?? null,
@@ -389,6 +396,7 @@ export async function postMessage(
     id,
     roomId,
     sender,
+    senderClientId,
     text,
     replyToMessageId: replyToId,
     attachments,

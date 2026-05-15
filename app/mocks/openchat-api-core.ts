@@ -388,7 +388,8 @@ async function handleMessages(method: string, roomId: string, request: Request) 
     if (!sender) return badRequest('sender is required')
     if (!text && (!attachments || attachments.length === 0)) return badRequest('text or attachments is required')
 
-    const msgCid = readClientIdFromRequest(request)
+    const msgCid =
+      (body?.senderClientId ?? '').trim() || readClientIdFromRequest(request) || undefined
     const senderKey = resolveMemberKey(roomId, sender, msgCid)
 
     // 정책별 메시지 전송 제한
@@ -409,6 +410,7 @@ async function handleMessages(method: string, roomId: string, request: Request) 
       id: uuid(),
       roomId,
       sender,
+      ...(msgCid ? { senderClientId: msgCid } : {}),
       text,
       replyToMessageId,
       attachments,

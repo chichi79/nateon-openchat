@@ -15,6 +15,8 @@ export type OpenChatMessage = {
   id: string
   roomId: string
   sender: string
+  /** 전송 시 브라우저 익명 id — 닉네임이 같아도 발신 구분용 */
+  senderClientId?: string
   text: string
   replyToMessageId?: string
   attachments?: OpenChatAttachment[]
@@ -107,6 +109,7 @@ export type ListMessagesResponse = {
 
 export type PostMessageRequest = {
   sender: string
+  senderClientId?: string
   text: string
   replyToMessageId?: string
   attachments?: OpenChatAttachment[]

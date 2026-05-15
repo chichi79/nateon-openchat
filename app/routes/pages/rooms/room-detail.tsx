@@ -12,6 +12,7 @@ import type {
 
 import { isViteEnvFalse } from '@/lib/vite-env-flags'
 import { openchatDisplaySenderName } from '@/lib/openchat-display-name'
+import { ensureOpenchatClientId, isOpenchatMessageMine } from '@/lib/openchat-identity'
 import { canSenderCancelOwnMessage, countReadersForMessage, textMentionsNickname } from '@/lib/openchat-read-receipt'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
 import {
@@ -92,7 +93,13 @@ export async function clientAction({ request, params }: { request: Request; para
   const attachmentsJson = String(form.get('attachmentsJson') ?? '')
   const attachments = attachmentsJson ? (JSON.parse(attachmentsJson) as OpenChatAttachment[]) : undefined
 
-  const message = await postMessage(roomId, { sender, text, replyToMessageId, attachments })
+  const message = await postMessage(roomId, {
+    sender,
+    senderClientId: ensureOpenchatClientId(),
+    text,
+    replyToMessageId,
+    attachments,
+  })
   return { message }
 }
 
@@ -190,6 +197,7 @@ export default function RoomDetailPage() {
   }
   const [nickname, setNickname] = useLocalStorageState('openchat.nickname', 'ㅇㅇ')
   const senderName = nickname?.trim() || 'ㅇㅇ'
+  const myClientId = ensureOpenchatClientId()
   const formRef = useRef<HTMLFormElement | null>(null)
   const composeTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const chatBottomAnchorRef = useRef<HTMLLIElement | null>(null)
@@ -491,7 +499,7 @@ export default function RoomDetailPage() {
       mentionNotifiedIdsRef.current.add(m.id)
       if (typeof Notification === 'undefined' || Notification.permission !== 'granted') continue
       if (typeof document !== 'undefined' && !document.hidden) continue
-      if (m.deletedAt || m.sender === senderName) continue
+      if (m.deletedAt || isOpenchatMessageMine(m, senderName, myClientId)) continue
       if (!textMentionsNickname(m.text, senderName)) continue
       try {
         new Notification(`${m.sender}님이 회원님을 멘션`, {
@@ -502,7 +510,7 @@ export default function RoomDetailPage() {
         /* ignore */
       }
     }
-  }, [sortedMessages, senderName, room.id])
+  }, [sortedMessages, senderName, myClientId, room.id])
 
   async function refreshMe() {
     try {
@@ -1254,7 +1262,7 @@ export default function RoomDetailPage() {
               }
 
               const m = it.msg
-              const isMine = m.sender === senderName
+              const isMine = isOpenchatMessageMine(m, senderName, myClientId)
               const readCount = isMine && !m.deletedAt ? countReadersForMessage(m.createdAt, m.sender, readStates) : 0
               const replied = m.replyToMessageId ? sortedMessages.find((x) => x.id === m.replyToMessageId) : undefined
 
@@ -1707,7 +1715,7 @@ export default function RoomDetailPage() {
               >
                 답장
               </button>
-              {messageMenu.sender === senderName ? (
+              {isOpenchatMessageMine(messageMenu, senderName, myClientId) ? (
                 <button
                   type='button'
                   className={[

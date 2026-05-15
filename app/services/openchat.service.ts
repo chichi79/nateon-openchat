@@ -79,11 +79,12 @@ export async function listMessages(roomId: string): Promise<OpenChatMessage[]> {
 }
 
 export async function postMessage(roomId: string, body: PostMessageRequest): Promise<OpenChatMessage> {
-  if (useOpenchatFirestore()) return openchatFs.postMessage(roomId, body, browserClientId())
+  const payload = { ...body, senderClientId: body.senderClientId ?? browserClientId() }
+  if (useOpenchatFirestore()) return openchatFs.postMessage(roomId, payload, browserClientId())
   const res = await fetch(`/api/openchat/rooms/${encodeURIComponent(roomId)}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...ocHeaders() },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   })
   const data = await parseJson<PostMessageResponse>(res)
   return data.message
