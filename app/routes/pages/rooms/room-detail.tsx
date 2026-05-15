@@ -134,8 +134,6 @@ function renderTextWithMentions(text: string) {
   })
 }
 
-const isClientMockApi = (import.meta.env.VITE_ENABLE_MOCK_API ?? 'true') !== 'false'
-
 type ModeratorPanelTab = 'invite' | 'requests' | 'members'
 
 function policyChipFor(policy: OpenChatRoom['policy']) {
@@ -255,6 +253,8 @@ export default function RoomDetailPage() {
 
   const policyChip = policyChipFor(room.policy)
   const firestoreLive = useOpenchatFirestore()
+  const mockApiEnvOn = (import.meta.env.VITE_ENABLE_MOCK_API ?? 'true') !== 'false'
+  const showMockStorageNotice = !firestoreLive && mockApiEnvOn
   const [snapMessages, setSnapMessages] = useState<OpenChatMessage[] | undefined>(undefined)
 
   useEffect(() => {
@@ -288,14 +288,14 @@ export default function RoomDetailPage() {
   }, [room.id])
 
   useEffect(() => {
-    if (!isClientMockApi) return
+    if (firestoreLive || !mockApiEnvOn) return
     const onStorage = (e: StorageEvent) => {
       if (e.key !== OPENCHAT_MOCK_DB_STORAGE_KEY || e.newValue === null) return
       void revalidator.revalidate()
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
-  }, [isClientMockApi, revalidator])
+  }, [firestoreLive, mockApiEnvOn, revalidator])
 
   const optimisticMessages = (() => {
     const base = canViewChatHistory ? (snapMessages !== undefined ? snapMessages : messages) : []
@@ -856,17 +856,18 @@ export default function RoomDetailPage() {
 
   return (
     <div className='space-y-4'>
-      {isClientMockApi ? (
+      {showMockStorageNotice ? (
         <div className='rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/95'>
           <span className='font-medium text-amber-50'>데모(Mock) 저장 방식</span>
           <span className='text-amber-100/85'>
             {' '}
             채팅·방 데이터는 이 브라우저의 <code className='rounded bg-slate-200 dark:bg-black/30 px-1 py-0.5 font-mono text-[11px]'>localStorage</code>에만
             들어갑니다. 같은 브라우저의 탭·창은 서로 맞춰 보이고, 크롬과 엣지처럼 <span className='font-medium'>앱이 다른 브라우저</span>나
-            다른 PC는 저장소가 달라 이어지지 않습니다. 기기 간 동기화는 같은 origin 의 실제{' '}
-            <code className='rounded bg-slate-200 dark:bg-black/30 px-1 py-0.5 font-mono text-[11px]'>/api/openchat/*</code> 백엔드를 붙이고{' '}
-            <code className='rounded bg-slate-200 dark:bg-black/30 px-1 py-0.5 font-mono text-[11px]'>VITE_ENABLE_MOCK_API=false</code> 로 Mock을 끌 때만
-            가능합니다(README 참고).
+            다른 PC는 저장소가 달라 이어지지 않습니다. 기기 간 동기화는{' '}
+            <span className='font-medium'>Firestore</span>(<code className='rounded bg-slate-200 dark:bg-black/30 px-1 py-0.5 font-mono text-[11px]'>VITE_USE_FIRESTORE=true</code>
+            , 전체 <code className='rounded bg-slate-200 dark:bg-black/30 px-1 py-0.5 font-mono text-[11px]'>VITE_FIREBASE_*</code>,{' '}
+            <code className='rounded bg-slate-200 dark:bg-black/30 px-1 py-0.5 font-mono text-[11px]'>VITE_ENABLE_MOCK_API=false</code>) 또는 같은 origin 의 실제{' '}
+            <code className='rounded bg-slate-200 dark:bg-black/30 px-1 py-0.5 font-mono text-[11px]'>/api/openchat/*</code> 백엔드로만 가능합니다(README 참고).
           </span>
         </div>
       ) : null}

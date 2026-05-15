@@ -107,41 +107,99 @@ npx firebase login
 
 ### Vercel (`*.vercel.app`)
 
-프론트만 Vercel에 올리고 **Firestore 등 Firebase 백엔드는 그대로** 쓸 수 있습니다. 저장소 루트에 **`vercel.json`**이 있어 빌드·출력·SPA 라우팅이 맞춰져 있습니다.
+프론트만 Vercel에 올리고 **Firestore 등 Firebase 백엔드는 그대로** 쓸 수 있습니다. 저장소 루트 **`vercel.json`**에 빌드·출력 디렉터리·SPA용 rewrite가 들어 있습니다.
+
+#### 0. 저장소와 Vercel 연결 (GitLab)
+
+- **gitlab.com** 저장소: [Vercel 대시보드](https://vercel.com/dashboard) → **Add New… → Project** → **Import Git Repository**에서 GitLab 계정을 연결한 뒤 저장소를 고릅니다.
+- **사내 GitLab** (`gitlab.skcomms.co.kr` 등 Self-Managed): Vercel 플랜·설정에 따라 **Import 목록에 호스트가 안 나올 수 있습니다.** 그때는 아래 중 하나를 씁니다.
+  - 조직에서 **GitLab Self-Managed ↔ Vercel 연동**을 이미 썼다면, 안내대로 OAuth/앱을 등록합니다. ([Vercel: Git providers](https://vercel.com/docs/deployments/git) 문서 참고)
+  - **Vercel CLI**로 로컬 폴더를 프로젝트에 연결해 배포 (아래 **6. CLI**). Git 원격은 사내 GitLab 그대로 두고, 배포만 Vercel이 담당합니다.
+  - 또는 **GitHub/GitLab.com 미러** 저장소를 두고, 그쪽만 Vercel에 연결합니다.
 
 #### 1. 준비
 
-- [Vercel](https://vercel.com)에 가입 후 GitHub/GitLab/Bitbucket 저장소를 연결하거나, [Vercel CLI](https://vercel.com/docs/cli)로 `vercel` 배포.
-- 로컬에서 한 번 **`npm run build`**가 성공하는지 확인 (`build/client` 생성).
+- [Vercel](https://vercel.com) 계정 (GitHub/GitLab 로그인 가능).
+- 로컬에서 **`npm install`** 후 **`npm run build`**가 끝까지 성공하는지 확인 (`build/client` 폴더 생성).
 
-#### 2. 대시보드에서 새 프로젝트
+#### 2. 새 프로젝트 만들기 (대시보드)
 
-1. **Add New… → Project** → 저장소 선택.
-2. **Framework Preset**: `Other` (또는 자동 감지가 `Vite`로 잡히면 **Output Directory만** 아래와 같이 수정).
-3. **Root Directory**: 저장소 루트(`.`).
-4. **Build Command**: `npm run build`
-5. **Output Directory**: `build/client`
-6. **Install Command**: `npm install` (기본값 그대로 가능)
-7. **Environment Variables**: 로컬 `.env`에 있는 **`VITE_*`** 항목을 프로덕션 값으로 등록 (예: `VITE_FIREBASE_*`, `VITE_USE_FIRESTORE`, `VITE_ENABLE_MOCK_API`, `VITE_OAUTH_LOGIN_URL` 등). 빌드 시 주입되므로 **배포 전에** 넣어야 합니다.
-8. **Deploy** 클릭.
+1. **Add New… → Project**
+2. 연결한 Git에서 **`frontend/openchat`** 저장소 선택 (또는 CLI로 연결).
+3. **Project Name**: 원하는 이름 (URL에 쓰임: `프로젝트명.vercel.app`).
+4. **Framework Preset**: `Other` 권장 (`vercel.json`의 `framework: null`과 맞춤). 자동으로 `Vite`가 잡혀도 되지만, 아래 **Output Directory**가 꼭 `build/client`인지 확인합니다.
+5. **Root Directory**: `.` (저장소 루트)
+6. **Build Command**: `npm run build`
+7. **Output Directory**: `build/client`
+8. **Install Command**: `npm install`
+9. **Production Branch**: `main` (다른 브랜치를 쓰면 그에 맞게)
+10. **Environment Variables** (아래 표). **Production**에 넣고, 필요하면 Preview/Development도 동일하게 복사합니다. **첫 Deploy 전에** 저장해야 빌드에 반영됩니다.
+11. **Deploy** 클릭.
 
-배포 후 `https://<프로젝트명>.vercel.app` 으로 접속합니다. `vercel.json`의 `rewrites`로 `/rooms/...` 직접 주소·새로고침도 `index.html`로 넘어갑니다.
+빌드 로그에서 `npm run build` 성공 후 `build/client`가 업로드되는지 확인합니다. 완료되면 **`https://<프로젝트명>.vercel.app`** 로 접속합니다. `vercel.json`의 `rewrites`로 `/rooms/...` 직접 주소·새로고침도 SPA로 동작합니다.
 
-#### 3. Firebase와 같이 쓸 때
+#### 3. 환경 변수 (`.env.example` 기준)
 
-- **Firestore / 규칙 / 콘솔**: 변경 없음. `VITE_FIREBASE_*`만 Vercel 환경 변수와 맞추면 됩니다.
-- **Firebase Authentication**(Google 로그인 등)을 쓰는 경우: [Firebase Console](https://console.firebase.google.com/) → Authentication → Settings → **Authorized domains**에 `*.vercel.app` 및 커스텀 도메인을 추가합니다.
-- **OAuth 리다이렉트**(`VITE_OAUTH_LOGIN_URL`): 배포 URL이 바뀌면 IdP·백엔드 쪽 허용 리다이렉트 URI도 맞춰야 할 수 있습니다.
+| 이름 | 설명 |
+|------|------|
+| `VITE_FIREBASE_API_KEY` ~ `VITE_FIREBASE_APP_ID` | Firestore 사용 시 6개 모두 프로덕션 값 |
+| `VITE_USE_FIRESTORE` | `true` / `false` (Firestore 켤 때는 Firebase 6필드 필수) |
+| `VITE_ENABLE_MOCK_API` | Mock API 사용 여부 (`false`면 동일 origin에 실 API 필요) |
+| `VITE_OAUTH_LOGIN_URL` | OAuth 로그인 URL (배포 도메인 기준으로 절대 URL이 안전할 수 있음) |
 
-#### 4. CLI로 배포 (선택)
+`SERVER_PORT`는 Vercel 빌드에는 보통 필요 없습니다 (로컬 dev용).
+
+변수 추가·수정 후에는 **Deployments → 해당 배포의 … → Redeploy** 하거나, 새 커밋을 푸시해 재빌드합니다.
+
+#### 3-1. Vercel에서 **Firestore 모드**로 쓰기 (체크리스트)
+
+대시보드 **Project → Settings → Environment Variables**에서 아래를 **Production**(필요하면 Preview도)에 넣고 **Save** 한 뒤, 반드시 **Deployments → … → Redeploy** 하세요. `VITE_*`는 빌드 시점에 번들에 박힙니다.
+
+| 변수 | 값 |
+|------|-----|
+| `VITE_FIREBASE_API_KEY` | Firebase 콘솔 → 프로젝트 설정 → 일반 → 웹 앱의 `apiKey` |
+| `VITE_FIREBASE_AUTH_DOMAIN` | `xxx.firebaseapp.com` |
+| `VITE_FIREBASE_PROJECT_ID` | 프로젝트 ID |
+| `VITE_FIREBASE_STORAGE_BUCKET` | `xxx.appspot.com` 등 |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | 숫자 문자열 |
+| `VITE_FIREBASE_APP_ID` | `1:…:web:…` |
+| `VITE_USE_FIRESTORE` | **`true`** |
+| `VITE_ENABLE_MOCK_API` | **`false`** (Mock fetch를 끄고 Firestore SDK만 사용) |
+
+**Firebase 콘솔 (같은 프로젝트)**
+
+1. **Firestore Database** → 데이터베이스 만들기(없으면) → 위치 선택.
+2. **규칙**: 저장소 루트 `firestore.rules` 내용을 콘솔 규칙 편집기에 붙여 넣거나, 로컬에서 `npx firebase deploy --only firestore:rules` 로 배포합니다. (`firebase.json`의 `firestore` 항목 사용.)
+3. `orderBy('createdAt')` 등으로 **복합 인덱스**가 필요하면 브라우저 콘솔 오류의 링크를 따라 콘솔에서 인덱스를 추가합니다.
+4. **Authentication → Settings → Authorized domains**에 `프로젝트명.vercel.app`(및 커스텀 도메인)을 추가합니다.
+
+**배포 후**: 방 화면 상단의 **데모(Mock) localStorage** 안내는 Firestore가 실제로 켜진 빌드에서는 표시되지 않습니다. 여전히 보이면 변수 철자·`true`/`false` 문자열·Redeploy 여부를 다시 확인하세요.
+
+#### 4. 배포 후 확인
+
+- 브라우저에서 홈·`/rooms`·방 상세 URL로 이동·새로고침.
+- **F12 → Console / Network**에서 `/assets/*.js` 404나 빨간 오류 없는지 확인.
+
+#### 5. Firebase·OAuth와 같이 쓸 때
+
+- **Firestore / 규칙**: Vercel에서 Firestore 모드로 올릴 때는 위 **§3-1** 과 같이 환경 변수를 맞춘 뒤, 콘솔에서 규칙·인덱스·Authorized domains를 확인합니다.
+- **Firebase Authentication**: 콘솔 → Authentication → Settings → **Authorized domains**에 `프로젝트명.vercel.app`, 커스텀 도메인, 필요 시 `*.vercel.app` 규칙을 추가합니다.
+- **`VITE_OAUTH_LOGIN_URL`**: 실제 배포 URL과 IdP·백엔드의 **허용 redirect URI**가 맞는지 확인합니다.
+
+#### 6. CLI만으로 연결·배포 (사내 GitLab용 우회)
+
+저장소 루트에서:
 
 ```bash
 npm i -g vercel
 vercel login
-vercel
+cd /path/to/openchat
+vercel link    # 팀·프로젝트 생성 또는 기존 프로젝트에 연결
+vercel env pull   # 선택: 원격 환경변수를 .env.local에 받기
+vercel --prod     # 프로덕션 배포 (또는 git push로 연동된 자동 배포)
 ```
 
-프로덕션: `vercel --prod`. 환경 변수는 `vercel env pull` / 대시보드에서 관리합니다.
+`vercel link` 후 Git 연동을 끄고 CLI만 쓸 수도 있고, 나중에 대시보드에서 Git을 붙일 수도 있습니다. 팀 정책에 맞게 선택하면 됩니다.
 
 ## 클라이언트 전용 API (`/api/openchat/*`)
 
