@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "react-router build",
-    "dev": "react-router dev",
+    "build": "node ./node_modules/@react-router/dev/bin.js build",
+    "dev": "node ./node_modules/@react-router/dev/bin.js dev",
     "start": "powershell -NoProfile -Command \"$p=$env:SERVER_PORT; if(-not $p){$p=8080}; vite preview --host 0.0.0.0 --port $p\"",
-    "typecheck": "react-router typegen && tsc",
+    "typecheck": "node ./node_modules/@react-router/dev/bin.js typegen && node ./node_modules/typescript/bin/tsc",
     "lint": "eslint .",
     "deploy:hosting": "npm run build && npx firebase deploy --only hosting",
     "deploy": "npm run build && npx firebase deploy"
