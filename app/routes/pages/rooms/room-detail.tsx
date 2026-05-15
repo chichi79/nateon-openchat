@@ -13,7 +13,7 @@ import type {
 import { isViteEnvFalse } from '@/lib/vite-env-flags'
 import { openchatDisplaySenderName } from '@/lib/openchat-display-name'
 import { ensureOpenchatClientId, isOpenchatMessageMine } from '@/lib/openchat-identity'
-import { canSenderCancelOwnMessage, countReadersForMessage, textMentionsNickname } from '@/lib/openchat-read-receipt'
+import { countReadersForMessage, textMentionsNickname } from '@/lib/openchat-read-receipt'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
 import {
   addRoomManager,
@@ -199,8 +199,8 @@ export default function RoomDetailPage() {
   const senderName = nickname?.trim() || 'ㅇㅇ'
   const myClientId = ensureOpenchatClientId()
   const formRef = useRef<HTMLFormElement | null>(null)
+  const composeBarRef = useRef<HTMLDivElement | null>(null)
   const composeTextareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const chatBottomAnchorRef = useRef<HTMLLIElement | null>(null)
   const isAtBottomRef = useRef(true)
   const [me, setMe] = useState<GetMembershipResponse>(initialMe)
   const membership = me.status
@@ -762,14 +762,15 @@ export default function RoomDetailPage() {
     }
   }
 
-  function scrollToBottom() {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        chatBottomAnchorRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' })
-        isAtBottomRef.current = true
-      })
+      const doc = document.documentElement
+      window.scrollTo({ top: doc.scrollHeight, left: 0, behavior })
+      isAtBottomRef.current = true
+      setIsAtBottom(true)
+      setNewMsgCount(0)
     })
-  }
+  }, [])
 
   const scrollToQuotedMessage = useCallback((messageId: string) => {
     requestAnimationFrame(() => {
@@ -777,10 +778,34 @@ export default function RoomDetailPage() {
     })
   }, [])
 
+  useLayoutEffect(() => {
+    const el = composeBarRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+
+    const sync = () => {
+      const h = el.getBoundingClientRect().height
+      document.documentElement.style.setProperty('--openchat-compose-h', `${Math.round(h * 1000) / 1000}px`)
+      if (isAtBottomRef.current) {
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' })
+        })
+      }
+    }
+
+    sync()
+    const ro = new ResizeObserver(() => sync())
+    ro.observe(el)
+    window.addEventListener('resize', sync)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', sync)
+    }
+  }, [replyTo?.id, attachments.length, canPost])
+
   useEffect(() => {
     const onScroll = () => {
       const doc = document.documentElement
-      const threshold = 96
+      const threshold = 72
       const visibleBottom = window.scrollY + window.innerHeight
       const atBottom = doc.scrollHeight - visibleBottom <= threshold
       isAtBottomRef.current = atBottom
@@ -815,19 +840,9 @@ export default function RoomDetailPage() {
     }
     scrollAfterOwnSendRef.current = false
     suppressNextNewMsgBadgeRef.current = true
-    isAtBottomRef.current = true
-    setIsAtBottom(true)
-    setNewMsgCount(0)
-    chatBottomAnchorRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' })
-    queueMicrotask(() => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          chatBottomAnchorRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' })
-          isAtBottomRef.current = true
-        })
-      })
-    })
-  }, [fetcher.state, fetcher.data?.message?.id])
+    scrollToBottom('auto')
+    requestAnimationFrame(() => scrollToBottom('auto'))
+  }, [fetcher.state, fetcher.data?.message?.id, scrollToBottom])
 
   const lastMsgId = sortedMessages.at(-1)?.id
   const prevLastMsgId = useRef<string | undefined>(undefined)
@@ -853,7 +868,7 @@ export default function RoomDetailPage() {
     } else if (suppressNextNewMsgBadgeRef.current) {
       suppressNextNewMsgBadgeRef.current = false
     }
-  }, [lastMsgId, sortedMessages.length])
+  }, [lastMsgId, sortedMessages.length, scrollToBottom])
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return
@@ -1243,7 +1258,7 @@ export default function RoomDetailPage() {
           </div>
         ) : null}
         <ul
-          className='relative space-y-2 overflow-x-clip px-4 pt-4 pb-[calc(8.5rem+env(safe-area-inset-bottom,0px))] [overflow-anchor:none]'
+          className='relative space-y-2 overflow-x-clip px-4 pt-4 pb-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))]'
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault()
@@ -1440,12 +1455,7 @@ export default function RoomDetailPage() {
                           isMine ? 'justify-end' : 'justify-start',
                         ].join(' ')}
                       >
-                        {!m.deletedAt && isMine && canSenderCancelOwnMessage(m.createdAt) ? (
-                          <button type='button' className='hover:text-amber-200' onClick={() => void handleDelete(m.id)}>
-                            취소 전송
-                          </button>
-                        ) : null}
-                        {!m.deletedAt && isModerator && (!isMine || !canSenderCancelOwnMessage(m.createdAt)) ? (
+                        {!m.deletedAt && isModerator ? (
                           <button type='button' className='hover:text-rose-300' onClick={() => void handleDelete(m.id)}>
                             삭제
                           </button>
@@ -1459,7 +1469,7 @@ export default function RoomDetailPage() {
             })}
           {canViewChatHistory && typistLabel ? (
             <li
-              className='pointer-events-none sticky bottom-[calc(8.5rem+env(safe-area-inset-bottom,0px))] z-10 -mx-4 flex list-none justify-start px-4 pb-1'
+              className='pointer-events-none sticky bottom-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))] z-10 -mx-4 flex list-none justify-start px-4 pb-1'
               role='status'
               aria-live='polite'
               aria-atomic='true'
@@ -1477,18 +1487,14 @@ export default function RoomDetailPage() {
               </div>
             </li>
           ) : null}
-          <li
-            ref={chatBottomAnchorRef}
-            aria-hidden
-            className='pointer-events-none h-px shrink-0 list-none scroll-mb-[calc(8.5rem+env(safe-area-inset-bottom,0px))]'
-          />
+          <li aria-hidden className='pointer-events-none h-0 shrink-0 list-none' />
         </ul>
       </div>
 
       {newMsgCount > 0 && !isAtBottom ? (
         <button
           type='button'
-          className='fixed bottom-[calc(8.5rem+env(safe-area-inset-bottom,0px))] left-1/2 z-40 -translate-x-1/2 rounded-full bg-[#5C87FF]/90 px-4 py-2 text-xs font-medium text-white shadow-[0_10px_30px_-10px_rgba(92,135,255,0.7)] backdrop-blur-md transition hover:bg-[#5C87FF]'
+          className='fixed bottom-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))] left-1/2 z-40 -translate-x-1/2 rounded-full bg-[#5C87FF]/90 px-4 py-2 text-xs font-medium text-white shadow-[0_10px_30px_-10px_rgba(92,135,255,0.7)] backdrop-blur-md transition hover:bg-[#5C87FF]'
           onClick={() => {
             scrollToBottom()
             setNewMsgCount(0)
@@ -1501,7 +1507,7 @@ export default function RoomDetailPage() {
       {showScrollTopFab ? (
         <button
           type='button'
-          className='focus-ring fixed bottom-[calc(7rem+max(1.25rem,env(safe-area-inset-bottom)))] right-[max(1.25rem,env(safe-area-inset-right))] z-[95] flex min-w-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-2.5 text-[10px] font-bold leading-tight tracking-wider text-slate-800 shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-zinc-800/95'
+          className='focus-ring fixed bottom-[calc(var(--openchat-compose-h)+max(1rem,env(safe-area-inset-bottom)))] right-[max(1.25rem,env(safe-area-inset-right))] z-[95] flex min-w-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-2.5 text-[10px] font-bold leading-tight tracking-wider text-slate-800 shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-zinc-800/95'
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           aria-label='맨 위로'
         >
@@ -1512,7 +1518,10 @@ export default function RoomDetailPage() {
         </button>
       ) : null}
 
-      <div className='fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 dark:border-white/5 bg-white/85 dark:bg-[rgba(8,9,15,0.78)] pb-[env(safe-area-inset-bottom,0)] backdrop-blur-xl'>
+      <div
+        ref={composeBarRef}
+        className='fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 dark:border-white/5 bg-white/85 dark:bg-[rgba(8,9,15,0.78)] pb-[env(safe-area-inset-bottom,0)] backdrop-blur-xl'
+      >
         <div className='mx-auto max-w-5xl px-4 pt-3'>
           <fetcher.Form
             ref={formRef}
@@ -1715,29 +1724,18 @@ export default function RoomDetailPage() {
               >
                 답장
               </button>
-              {isOpenchatMessageMine(messageMenu, senderName, myClientId) ? (
+              {isModerator ? (
                 <button
                   type='button'
-                  className={[
-                    'rounded-none px-4 py-3 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-45',
-                    canSenderCancelOwnMessage(messageMenu.createdAt)
-                      ? 'text-amber-800 hover:bg-amber-50 dark:text-amber-200 dark:hover:bg-amber-950/40'
-                      : 'text-rose-800 hover:bg-rose-50 dark:text-rose-200 dark:hover:bg-rose-950/35',
-                  ].join(' ')}
-                  disabled={!canSenderCancelOwnMessage(messageMenu.createdAt) && !isModerator}
-                  title={
-                    !canSenderCancelOwnMessage(messageMenu.createdAt) && !isModerator
-                      ? '보낸 지 1분 이내만 취소할 수 있어요'
-                      : undefined
-                  }
+                  className='rounded-none px-4 py-3 text-left text-sm text-rose-800 transition hover:bg-rose-50 dark:text-rose-200 dark:hover:bg-rose-950/35'
                   onClick={() => {
                     void handleDelete(messageMenu.id)
                     setMessageMenu(null)
                   }}
                 >
-                  {canSenderCancelOwnMessage(messageMenu.createdAt) ? '취소 전송' : '삭제'}
+                  삭제
                 </button>
-              ) : (
+              ) : !isOpenchatMessageMine(messageMenu, senderName, myClientId) ? (
                 <button
                   type='button'
                   className='rounded-none px-4 py-3 text-left text-sm text-slate-800 transition hover:bg-slate-100 dark:text-zinc-100 dark:hover:bg-white/[0.06]'
@@ -1748,7 +1746,7 @@ export default function RoomDetailPage() {
                 >
                   신고
                 </button>
-              )}
+              ) : null}
             </div>
           </div>
         </div>

@@ -29,6 +29,9 @@
 
   /* TopNav 실측 높이 — MainLayout에서 ResizeObserver로 덮어씀 */
   --app-header-h: 4rem;
+  /* 채팅 입력창 실측 높이 — room-detail에서 ResizeObserver로 덮어씀 */
+  --openchat-compose-h: 5.25rem;
+  --openchat-compose-gap: 0.5rem;
 }
 
 html[data-theme="light"] {

@@ -35,7 +35,6 @@ import type {
   RoomPolicy,
 } from '@/features/openchat/openchat.types'
 
-import { OWN_MESSAGE_CANCEL_MS } from '@/lib/openchat-read-receipt'
 import { getFirebaseApp } from '@/firebase'
 
 function firestore() {
@@ -416,16 +415,8 @@ export async function deleteMessage(
   if (!ms.exists()) throw new Error('Message not found')
   const msg = msgFromSnap(roomId, messageId, ms.data() as Record<string, unknown>)
   const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
-  const actorKey = await resolveMemberKey(roomId, nickname, clientId)
   const isMod = await isModeratorFull(room, roomId, nickname, clientId)
-  const isOwn = msg.sender === actorKey
-  if (!isMod && !isOwn) throw new Error('No permission')
-  if (!isMod && isOwn) {
-    const age = Date.now() - new Date(msg.createdAt).getTime()
-    if (age > OWN_MESSAGE_CANCEL_MS) {
-      throw new Error('본인 메시지는 전송 후 1분 이내에만 취소할 수 있어요.')
-    }
-  }
+  if (!isMod) throw new Error('No permission')
   await updateDoc(mref, {
     text: '',
     attachments: deleteField(),

@@ -1,12 +1,3 @@
-/** 본인 메시지 “취소 전송” 허용 시간(밀리초) */
-export const OWN_MESSAGE_CANCEL_MS = 60_000
-
-export function canSenderCancelOwnMessage(createdAtIso: string): boolean {
-  const t = new Date(createdAtIso).getTime()
-  if (Number.isNaN(t)) return false
-  return Date.now() - t < OWN_MESSAGE_CANCEL_MS
-}
-
 /** `renderTextWithMentions`와 동일한 @닉네임 토큰 기준 */
 export function textMentionsNickname(text: string, nickname: string): boolean {
   const nick = nickname.trim()

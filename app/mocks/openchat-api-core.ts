@@ -1,7 +1,6 @@
 import { defaultInviteExpiry } from './openchat.db'
 import type { MemberRecordStatus, OpenChatDb } from './openchat.db'
 
-import { OWN_MESSAGE_CANCEL_MS } from '@/lib/openchat-read-receipt'
 
 import type {
   CreateRoomRequest,
@@ -442,7 +441,6 @@ async function handleDeleteMessage(method: string, roomId: string, messageId: st
   const nickname = (body?.nickname ?? '').trim()
   if (!nickname) return badRequest('nickname is required')
   const delCid = readClientIdFromRequest(request)
-  const effectiveKey = resolveMemberKey(roomId, nickname, delCid)
 
   const list = db.messagesByRoomId[roomId] ?? []
   const idx = list.findIndex((m) => m.id === messageId)
@@ -450,14 +448,7 @@ async function handleDeleteMessage(method: string, roomId: string, messageId: st
 
   const msg = list[idx]!
   const isMod = isModerator(room, roomId, nickname, delCid)
-  const isOwn = msg.sender === nickname || msg.sender === effectiveKey
-  if (!isMod && !isOwn) return forbidden('No permission')
-  if (!isMod && isOwn) {
-    const age = Date.now() - new Date(msg.createdAt).getTime()
-    if (age > OWN_MESSAGE_CANCEL_MS) {
-      return forbidden('본인 메시지는 전송 후 1분 이내에만 취소할 수 있어요.')
-    }
-  }
+  if (!isMod) return forbidden('No permission')
 
   const next: OpenChatMessage = {
     ...msg,
