@@ -15,6 +15,8 @@ export type OpenChatDb = {
   rooms: OpenChatRoom[]
   messagesByRoomId: Record<string, OpenChatMessage[]>
   membersByRoomId: Record<string, Record<string, MemberRecordStatus>>
+  /** roomId → clientId → membersByRoomId 키(가입 시 닉네임) */
+  clientIdToMemberKeyByRoomId: Record<string, Record<string, string>>
   /** pending 신청 시각(ISO) — 만료 판단용 */
   pendingRequestedAtByRoomId: Record<string, Record<string, string>>
   /** @deprecated 로드 시 inviteStateByRoomId로 승격 */
@@ -41,6 +43,7 @@ export function migrateOpenChatDb(parsed: unknown): OpenChatDb {
   const rooms = v.rooms
   const messagesByRoomId = v.messagesByRoomId
   const membersByRoomId = { ...(v.membersByRoomId ?? {}) } as Record<string, Record<string, MemberRecordStatus>>
+  const clientIdToMemberKeyByRoomId = { ...(v.clientIdToMemberKeyByRoomId ?? {}) } as Record<string, Record<string, string>>
   const pendingRequestedAtByRoomId = { ...(v.pendingRequestedAtByRoomId ?? {}) }
   const inviteStateByRoomId = { ...(v.inviteStateByRoomId ?? {}) }
   const managersByRoomId = { ...(v.managersByRoomId ?? {}) }
@@ -59,6 +62,7 @@ export function migrateOpenChatDb(parsed: unknown): OpenChatDb {
   for (const r of rooms) {
     const id = r.id
     membersByRoomId[id] = membersByRoomId[id] ?? {}
+    clientIdToMemberKeyByRoomId[id] = clientIdToMemberKeyByRoomId[id] ?? {}
     pendingRequestedAtByRoomId[id] = pendingRequestedAtByRoomId[id] ?? {}
     managersByRoomId[id] = managersByRoomId[id] ?? []
     blockedByRoomId[id] = blockedByRoomId[id] ?? []
@@ -75,6 +79,7 @@ export function migrateOpenChatDb(parsed: unknown): OpenChatDb {
     rooms,
     messagesByRoomId,
     membersByRoomId,
+    clientIdToMemberKeyByRoomId,
     pendingRequestedAtByRoomId,
     inviteStateByRoomId,
     managersByRoomId,
@@ -153,10 +158,13 @@ export function createOpenChatDb(): OpenChatDb {
     'teamroom-demo': {},
   }
 
+  const clientIdToMemberKeyByRoomId: OpenChatDb['clientIdToMemberKeyByRoomId'] = {}
+
   return {
     rooms,
     messagesByRoomId,
     membersByRoomId,
+    clientIdToMemberKeyByRoomId,
     pendingRequestedAtByRoomId,
     inviteStateByRoomId,
     managersByRoomId,

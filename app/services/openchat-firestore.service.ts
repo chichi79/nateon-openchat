@@ -7,6 +7,7 @@ import {
   getDocs,
   getFirestore,
   onSnapshot,
+  limit,
   orderBy,
   query,
   serverTimestamp,
@@ -17,6 +18,7 @@ import {
   writeBatch,
   type CollectionReference,
   type DocumentData,
+  type DocumentSnapshot,
 } from 'firebase/firestore'
 
 import type {
@@ -70,6 +72,29 @@ function memberDocId(nickname: string) {
   return nickname.replace(/\//g, '__')
 }
 
+async function getMemberDoc(roomId: string, nickname: string, clientId?: string | null): Promise<DocumentSnapshot<DocumentData> | null> {
+  const cid = (clientId ?? '').trim()
+  if (cid) {
+    const qs = await getDocs(query(membersCol(roomId), where('clientId', '==', cid), limit(1)))
+    if (!qs.empty) return qs.docs[0]!
+  }
+  const ref = doc(membersCol(roomId), memberDocId(nickname.trim()))
+  const d = await getDoc(ref)
+  if (!d.exists()) return null
+  return d
+}
+
+function memberKeyFromSnap(nicknameFallback: string, snap: DocumentSnapshot<DocumentData>): string {
+  const n = String(snap.data()?.nickname ?? '').trim()
+  return n || nicknameFallback.trim()
+}
+
+async function resolveMemberKey(roomId: string, nickname: string, clientId?: string | null): Promise<string> {
+  const snap = await getMemberDoc(roomId, nickname, clientId)
+  if (snap) return memberKeyFromSnap(nickname, snap)
+  return nickname.trim()
+}
+
 function tsToIso(t: Timestamp | { toDate?: () => Date } | undefined | null): string {
   if (!t) return new Date().toISOString()
   if (t instanceof Timestamp) return t.toDate().toISOString()
@@ -78,12 +103,15 @@ function tsToIso(t: Timestamp | { toDate?: () => Date } | undefined | null): str
 }
 
 function roomFromSnap(id: string, data: Record<string, unknown>): OpenChatRoom {
+  const ownerClientIdRaw = data.ownerClientId
   return {
     id,
     title: String(data.title ?? ''),
     policy: (data.policy as RoomPolicy) ?? 'open_link',
     tags: Array.isArray(data.tags) ? (data.tags as string[]) : [],
     ownerNickname: String(data.ownerNickname ?? ''),
+    ownerClientId:
+      typeof ownerClientIdRaw === 'string' && ownerClientIdRaw.trim() ? ownerClientIdRaw.trim() : undefined,
     createdAt: tsToIso(data.createdAt as Timestamp | undefined),
   }
 }
@@ -159,14 +187,17 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
     policy: body.policy,
     tags: body.tags ?? [],
     ownerNickname: body.ownerNickname.trim(),
+    ownerClientId,
     createdAt: new Date().toISOString(),
   }
+  const ownerClientId = body.ownerClientId?.trim() || undefined
   const batch = writeBatch(firestore())
   batch.set(rref, {
     title: room.title,
     policy: room.policy,
     tags: room.tags,
     ownerNickname: room.ownerNickname,
+    ...(ownerClientId ? { ownerClientId } : {}),
     createdAt: now,
     managers: [],
     blocked: [],
@@ -178,6 +209,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
     nickname: room.ownerNickname,
     status: 'member',
     requestedAt: null,
+    ...(ownerClientId ? { clientId: ownerClientId } : {}),
   })
   const mref = doc(messagesCol(id), uuid())
   batch.set(mref, {
@@ -267,20 +299,27 @@ export async function setTypingActivity(roomId: string, nickname: string, active
  * 멤버별 “여기까지 읽음” 커서. 값은 메시지 `createdAt`(ISO) 문자열 비교용.
  * invite / gated_open 은 멤버만 기록. open_link 는 누구나(목록·채팅 정책과 동일하게 클라이언트에서 호출).
  */
-export async function setReadCursor(roomId: string, nickname: string, upToCreatedAt: string): Promise<void> {
+export async function setReadCursor(
+  roomId: string,
+  nickname: string,
+  upToCreatedAt: string,
+  clientId?: string | null,
+): Promise<void> {
   const room = await getRoom(roomId)
-  const nick = nickname.trim()
-  if (!nick || !upToCreatedAt.trim()) return
+  const up = upToCreatedAt.trim()
+  if (!nickname.trim() || !up) return
+
+  const memberKey = await resolveMemberKey(roomId, nickname, clientId)
 
   if (room.policy === 'invite' || room.policy === 'gated_open') {
     const blocked = (await getDoc(roomRef(roomId))).data()?.blocked as string[] | undefined
-    if (blocked?.includes(nick)) return
-    if ((await getMembershipStatus(roomId, nick)) !== 'member') return
+    if (blocked?.includes(memberKey)) return
+    if ((await getMembershipStatus(roomId, nickname, clientId)) !== 'member') return
   }
 
   await setDoc(
-    doc(readStatesCol(roomId), memberDocId(nick)),
-    { nickname: nick, lastReadCreatedAt: upToCreatedAt.trim(), updatedAt: serverTimestamp() },
+    doc(readStatesCol(roomId), memberDocId(memberKey)),
+    { nickname: memberKey, lastReadCreatedAt: up, updatedAt: serverTimestamp() },
     { merge: true },
   )
 }
@@ -309,7 +348,11 @@ export function subscribeRoomReadStates(
   )
 }
 
-export async function postMessage(roomId: string, body: PostMessageRequest): Promise<OpenChatMessage> {
+export async function postMessage(
+  roomId: string,
+  body: PostMessageRequest,
+  clientId?: string | null,
+): Promise<OpenChatMessage> {
   const room = await getRoom(roomId)
   const sender = body.sender.trim()
   const text = body.text.trim()
@@ -318,9 +361,10 @@ export async function postMessage(roomId: string, body: PostMessageRequest): Pro
   if (!text && (!attachments || attachments.length === 0)) throw new Error('text or attachments is required')
 
   if (room.policy === 'invite' || room.policy === 'gated_open') {
+    const memberKey = await resolveMemberKey(roomId, sender, clientId)
     const blocked = (await getDoc(roomRef(roomId))).data()?.blocked as string[] | undefined
-    if (blocked?.includes(sender)) throw new Error('blocked from this room')
-    const st = await getMembershipStatus(roomId, sender)
+    if (blocked?.includes(memberKey)) throw new Error('blocked from this room')
+    const st = await getMembershipStatus(roomId, sender, clientId)
     if (st !== 'member') throw new Error('Not a member')
   }
 
@@ -352,15 +396,21 @@ export async function postMessage(roomId: string, body: PostMessageRequest): Pro
   }
 }
 
-export async function deleteMessage(roomId: string, messageId: string, nickname: string): Promise<boolean> {
+export async function deleteMessage(
+  roomId: string,
+  messageId: string,
+  nickname: string,
+  clientId?: string | null,
+): Promise<boolean> {
   const room = await getRoom(roomId)
   const mref = doc(messagesCol(roomId), messageId)
   const ms = await getDoc(mref)
   if (!ms.exists()) throw new Error('Message not found')
   const msg = msgFromSnap(roomId, messageId, ms.data() as Record<string, unknown>)
   const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
-  const isMod = room.ownerNickname === nickname || managers.includes(nickname)
-  const isOwn = msg.sender === nickname
+  const actorKey = await resolveMemberKey(roomId, nickname, clientId)
+  const isMod = await isModeratorFull(room, roomId, nickname, clientId)
+  const isOwn = msg.sender === actorKey
   if (!isMod && !isOwn) throw new Error('No permission')
   if (!isMod && isOwn) {
     const age = Date.now() - new Date(msg.createdAt).getTime()
@@ -376,16 +426,16 @@ export async function deleteMessage(roomId: string, messageId: string, nickname:
   return true
 }
 
-async function getMembershipStatus(roomId: string, nickname: string): Promise<MembershipStatus> {
-  const d = await getDoc(doc(membersCol(roomId), memberDocId(nickname)))
-  if (!d.exists()) return 'none'
+async function getMembershipStatus(roomId: string, nickname: string, clientId?: string | null): Promise<MembershipStatus> {
+  const d = await getMemberDoc(roomId, nickname, clientId)
+  if (!d?.exists()) return 'none'
   const st = d.data()?.status as MembershipStatus | undefined
   if (st === 'pending') {
     const requestedAt = d.data()?.requestedAt as Timestamp | undefined
     if (requestedAt) {
       const ttl = 24 * 60 * 60 * 1000
       if (Date.now() - requestedAt.toMillis() > ttl) {
-        await deleteDoc(doc(membersCol(roomId), memberDocId(nickname)))
+        await deleteDoc(d.ref)
         return 'none'
       }
     }
@@ -393,24 +443,44 @@ async function getMembershipStatus(roomId: string, nickname: string): Promise<Me
   return st ?? 'none'
 }
 
-export async function getMembership(roomId: string, nickname: string): Promise<GetMembershipResponse> {
+async function isRoomOwnerFull(room: OpenChatRoom, roomId: string, nickname: string, clientId?: string | null): Promise<boolean> {
+  if (room.ownerClientId && (clientId ?? '').trim() && room.ownerClientId === (clientId ?? '').trim()) return true
+  const key = await resolveMemberKey(roomId, nickname, clientId)
+  return room.ownerNickname === key
+}
+
+async function isModeratorFull(
+  room: OpenChatRoom,
+  roomId: string,
+  nickname: string,
+  clientId?: string | null,
+): Promise<boolean> {
+  const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
+  const key = await resolveMemberKey(roomId, nickname, clientId)
+  const ownerByClient = !!(room.ownerClientId && (clientId ?? '').trim() && room.ownerClientId === (clientId ?? '').trim())
+  return ownerByClient || room.ownerNickname === key || managers.includes(key)
+}
+
+export async function getMembership(roomId: string, nickname: string, clientId?: string | null): Promise<GetMembershipResponse> {
   const room = await getRoom(roomId)
-  const status = await getMembershipStatus(roomId, nickname)
+  const memberKey = await resolveMemberKey(roomId, nickname, clientId)
+  const status = await getMembershipStatus(roomId, nickname, clientId)
   const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
   let pendingExpiresAt: string | undefined
   if (status === 'pending') {
-    const d = await getDoc(doc(membersCol(roomId), memberDocId(nickname)))
-    const at = d.data()?.requestedAt as Timestamp | undefined
+    const d = await getMemberDoc(roomId, nickname, clientId)
+    const at = d?.data()?.requestedAt as Timestamp | undefined
     if (at) pendingExpiresAt = new Date(at.toMillis() + 24 * 60 * 60 * 1000).toISOString()
   }
+  const isOwner = await isRoomOwnerFull(room, roomId, nickname, clientId)
   return {
     roomId,
     nickname,
     status,
     pendingExpiresAt,
     moderation: {
-      isOwner: room.ownerNickname === nickname,
-      isManager: managers.includes(nickname),
+      isOwner,
+      isManager: managers.includes(memberKey),
     },
   }
 }
@@ -420,27 +490,37 @@ export async function joinRoom(roomId: string, body: JoinRoomRequest): Promise<M
   const nickname = body.nickname.trim()
   const inviteCode = (body.inviteCode ?? '').trim()
   if (!nickname) throw new Error('nickname is required')
+  const joinClientId = (body.clientId ?? '').trim() || undefined
 
   const rdata = (await getDoc(roomRef(roomId))).data() as Record<string, unknown>
   const blocked = (rdata.blocked as string[]) ?? []
-  if (blocked.includes(nickname)) throw new Error('blocked from this room')
+  const memberKey = await resolveMemberKey(roomId, nickname, joinClientId ?? null)
+  if (blocked.includes(memberKey)) throw new Error('blocked from this room')
+
+  if (joinClientId) {
+    const existingEarly = await getMemberDoc(roomId, nickname, joinClientId)
+    if (existingEarly?.exists()) {
+      const est = existingEarly.data()?.status as MembershipStatus
+      if (est === 'member') return 'member'
+      if (est === 'pending' && room.policy === 'gated_open') return 'pending'
+    }
+  }
+
+  const memberPayload = (status: 'member' | 'pending') => ({
+    nickname,
+    status,
+    requestedAt: status === 'pending' ? serverTimestamp() : null,
+    ...(joinClientId ? { clientId: joinClientId } : {}),
+  })
 
   if (room.policy === 'open_link') {
-    await setDoc(doc(membersCol(roomId), memberDocId(nickname)), {
-      nickname,
-      status: 'member',
-      requestedAt: null,
-    })
+    await setDoc(doc(membersCol(roomId), memberDocId(nickname)), memberPayload('member'))
     return 'member'
   }
   if (room.policy === 'gated_open') {
-    const cur = await getMembershipStatus(roomId, nickname)
+    const cur = await getMembershipStatus(roomId, nickname, joinClientId ?? null)
     if (cur === 'member' || cur === 'pending') return cur
-    await setDoc(doc(membersCol(roomId), memberDocId(nickname)), {
-      nickname,
-      status: 'pending',
-      requestedAt: serverTimestamp(),
-    })
+    await setDoc(doc(membersCol(roomId), memberDocId(nickname)), memberPayload('pending'))
     return 'pending'
   }
   const code = String(rdata.inviteCode ?? '')
@@ -448,29 +528,25 @@ export async function joinRoom(roomId: string, body: JoinRoomRequest): Promise<M
   if (!inviteCode) throw new Error('inviteCode is required')
   if (code !== inviteCode) throw new Error('invalid inviteCode')
   if (exp && exp.toMillis() < Date.now()) throw new Error('invite code expired')
-  await setDoc(doc(membersCol(roomId), memberDocId(nickname)), {
-    nickname,
-    status: 'member',
-    requestedAt: null,
-  })
+  await setDoc(doc(membersCol(roomId), memberDocId(nickname)), memberPayload('member'))
   return 'member'
 }
 
-async function isModeratorFull(room: OpenChatRoom, roomId: string, nickname: string): Promise<boolean> {
-  const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
-  return room.ownerNickname === nickname || managers.includes(nickname)
-}
-
-export async function listJoinRequests(roomId: string, actorNickname: string): Promise<string[]> {
+export async function listJoinRequests(roomId: string, actorNickname: string, clientId?: string | null): Promise<string[]> {
   const room = await getRoom(roomId)
-  if (!(await isModeratorFull(room, roomId, actorNickname))) throw new Error('Only moderators can view requests')
+  if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can view requests')
   const snap = await getDocs(query(membersCol(roomId), where('status', '==', 'pending')))
   return snap.docs.map((d) => String(d.data().nickname ?? ''))
 }
 
-export async function approveJoin(roomId: string, actorNickname: string, targetNickname: string) {
+export async function approveJoin(
+  roomId: string,
+  actorNickname: string,
+  targetNickname: string,
+  clientId?: string | null,
+) {
   const room = await getRoom(roomId)
-  if (!(await isModeratorFull(room, roomId, actorNickname))) throw new Error('Only moderators can approve')
+  if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can approve')
   const st = await getMembershipStatus(roomId, targetNickname)
   if (st !== 'pending') throw new Error('target is not pending')
   await updateDoc(doc(membersCol(roomId), memberDocId(targetNickname)), {
@@ -480,24 +556,36 @@ export async function approveJoin(roomId: string, actorNickname: string, targetN
   return { roomId, targetNickname, status: 'member' as const }
 }
 
-export async function cancelPendingMembership(roomId: string, nickname: string) {
-  const st = await getMembershipStatus(roomId, nickname)
+export async function cancelPendingMembership(roomId: string, nickname: string, clientId?: string | null) {
+  const st = await getMembershipStatus(roomId, nickname, clientId)
   if (st !== 'pending') throw new Error('not pending')
-  await deleteDoc(doc(membersCol(roomId), memberDocId(nickname)))
+  const d = await getMemberDoc(roomId, nickname, clientId)
+  if (!d) throw new Error('not pending')
+  await deleteDoc(d.ref)
   return { ok: true as const }
 }
 
-export async function rejectJoin(roomId: string, actorNickname: string, targetNickname: string) {
+export async function rejectJoin(
+  roomId: string,
+  actorNickname: string,
+  targetNickname: string,
+  clientId?: string | null,
+) {
   const room = await getRoom(roomId)
-  if (!(await isModeratorFull(room, roomId, actorNickname))) throw new Error('Only moderators can reject')
+  if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can reject')
   if ((await getMembershipStatus(roomId, targetNickname)) !== 'pending') throw new Error('target is not pending')
   await updateDoc(doc(membersCol(roomId), memberDocId(targetNickname)), { status: 'rejected', requestedAt: deleteField() })
   return { roomId, targetNickname, status: 'rejected' as const }
 }
 
-export async function kickMember(roomId: string, actorNickname: string, targetNickname: string) {
+export async function kickMember(
+  roomId: string,
+  actorNickname: string,
+  targetNickname: string,
+  clientId?: string | null,
+) {
   const room = await getRoom(roomId)
-  if (!(await isModeratorFull(room, roomId, actorNickname))) throw new Error('Only moderators can kick')
+  if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can kick')
   if (targetNickname === room.ownerNickname) throw new Error('cannot kick owner')
   if ((await getMembershipStatus(roomId, targetNickname)) !== 'member') throw new Error('target is not a member')
   await deleteDoc(doc(membersCol(roomId), memberDocId(targetNickname)))
@@ -506,9 +594,14 @@ export async function kickMember(roomId: string, actorNickname: string, targetNi
   return { ok: true as const }
 }
 
-export async function blockMember(roomId: string, actorNickname: string, targetNickname: string) {
+export async function blockMember(
+  roomId: string,
+  actorNickname: string,
+  targetNickname: string,
+  clientId?: string | null,
+) {
   const room = await getRoom(roomId)
-  if (!(await isModeratorFull(room, roomId, actorNickname))) throw new Error('Only moderators can block')
+  if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can block')
   if (targetNickname === room.ownerNickname) throw new Error('cannot block owner')
   const rref = roomRef(roomId)
   const blocked = ((await getDoc(rref)).data()?.blocked as string[]) ?? []
@@ -522,30 +615,49 @@ export async function blockMember(roomId: string, actorNickname: string, targetN
   return { ok: true as const }
 }
 
-export async function unblockMember(roomId: string, actorNickname: string, targetNickname: string) {
+export async function unblockMember(
+  roomId: string,
+  actorNickname: string,
+  targetNickname: string,
+  clientId?: string | null,
+) {
   const room = await getRoom(roomId)
-  if (!(await isModeratorFull(room, roomId, actorNickname))) throw new Error('Only moderators can unblock')
+  if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can unblock')
   const rref = roomRef(roomId)
   const blocked = ((await getDoc(rref)).data()?.blocked as string[]) ?? []
   await updateDoc(rref, { blocked: blocked.filter((n) => n !== targetNickname) })
   return { ok: true as const }
 }
 
-export async function delegateOwner(roomId: string, fromNickname: string, toNickname: string) {
+export async function delegateOwner(
+  roomId: string,
+  fromNickname: string,
+  toNickname: string,
+  clientId?: string | null,
+) {
   const room = await getRoom(roomId)
-  if (room.ownerNickname !== fromNickname) throw new Error('only current owner can delegate')
+  if (!(await isRoomOwnerFull(room, roomId, fromNickname, clientId))) throw new Error('only current owner can delegate')
   if ((await getMembershipStatus(roomId, toNickname)) !== 'member') throw new Error('new owner must be a member')
   const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
+  const toSnap = await getMemberDoc(roomId, toNickname, null)
+  const toClientRaw = toSnap?.data()?.clientId
+  const toOwnerClientId = typeof toClientRaw === 'string' && toClientRaw.trim() ? toClientRaw.trim() : deleteField()
   await updateDoc(roomRef(roomId), {
     ownerNickname: toNickname,
+    ownerClientId: toOwnerClientId,
     managers: managers.filter((m) => m !== toNickname),
   })
   return { roomId, ownerNickname: toNickname }
 }
 
-export async function addRoomManager(roomId: string, ownerNickname: string, targetNickname: string) {
+export async function addRoomManager(
+  roomId: string,
+  ownerNickname: string,
+  targetNickname: string,
+  clientId?: string | null,
+) {
   const room = await getRoom(roomId)
-  if (room.ownerNickname !== ownerNickname) throw new Error('only owner can add managers')
+  if (!(await isRoomOwnerFull(room, roomId, ownerNickname, clientId))) throw new Error('only owner can add managers')
   if (targetNickname === room.ownerNickname) throw new Error('owner is already moderator')
   if ((await getMembershipStatus(roomId, targetNickname)) !== 'member') throw new Error('target must be a member')
   const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
@@ -554,18 +666,23 @@ export async function addRoomManager(roomId: string, ownerNickname: string, targ
   return { roomId, managers }
 }
 
-export async function removeRoomManager(roomId: string, ownerNickname: string, targetNickname: string) {
+export async function removeRoomManager(
+  roomId: string,
+  ownerNickname: string,
+  targetNickname: string,
+  clientId?: string | null,
+) {
   const room = await getRoom(roomId)
-  if (room.ownerNickname !== ownerNickname) throw new Error('only owner can remove managers')
+  if (!(await isRoomOwnerFull(room, roomId, ownerNickname, clientId))) throw new Error('only owner can remove managers')
   const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
   await updateDoc(roomRef(roomId), { managers: managers.filter((m) => m !== targetNickname) })
   return { roomId, managers: ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? [] }
 }
 
-export async function getInviteInfo(roomId: string, nickname: string): Promise<RoomInviteInfo> {
+export async function getInviteInfo(roomId: string, nickname: string, clientId?: string | null): Promise<RoomInviteInfo> {
   const room = await getRoom(roomId)
   if (room.policy !== 'invite') throw new Error('not an invite room')
-  if (!(await isModeratorFull(room, roomId, nickname))) throw new Error('Only moderators can view invite info')
+  if (!(await isModeratorFull(room, roomId, nickname, clientId))) throw new Error('Only moderators can view invite info')
   const d = (await getDoc(roomRef(roomId))).data() as Record<string, unknown>
   let code = String(d.inviteCode ?? '')
   let exp = d.inviteExpiresAt as Timestamp | undefined
@@ -577,19 +694,27 @@ export async function getInviteInfo(roomId: string, nickname: string): Promise<R
   return { code, expiresAt: exp ? exp.toDate().toISOString() : defaultInviteExpiry().toDate().toISOString() }
 }
 
-export async function regenerateInviteCode(roomId: string, ownerNickname: string): Promise<RoomInviteInfo> {
+export async function regenerateInviteCode(
+  roomId: string,
+  ownerNickname: string,
+  clientId?: string | null,
+): Promise<RoomInviteInfo> {
   const room = await getRoom(roomId)
   if (room.policy !== 'invite') throw new Error('not an invite room')
-  if (room.ownerNickname !== ownerNickname) throw new Error('only owner can regenerate invite code')
+  if (!(await isRoomOwnerFull(room, roomId, ownerNickname, clientId))) throw new Error('only owner can regenerate invite code')
   const code = randomInviteCode()
   const exp = defaultInviteExpiry()
   await updateDoc(roomRef(roomId), { inviteCode: code, inviteExpiresAt: exp })
   return { code, expiresAt: exp.toDate().toISOString() }
 }
 
-export async function listRoomMembers(roomId: string, actorNickname: string): Promise<ListRoomMembersResponse> {
+export async function listRoomMembers(
+  roomId: string,
+  actorNickname: string,
+  clientId?: string | null,
+): Promise<ListRoomMembersResponse> {
   const room = await getRoom(roomId)
-  if (!(await isModeratorFull(room, roomId, actorNickname))) throw new Error('Only moderators can list members')
+  if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can list members')
   const snap = await getDocs(membersCol(roomId))
   const members: RoomMemberRow[] = snap.docs
     .map((d) => {
@@ -628,13 +753,13 @@ async function deleteAllDocsInCollection(colRef: CollectionReference<DocumentDat
 }
 
 /** 방장만: 방 문서와 messages·memberRecords·typing·readStates 하위 문서를 삭제합니다. */
-export async function deleteRoom(roomId: string, ownerNickname: string): Promise<void> {
+export async function deleteRoom(roomId: string, ownerNickname: string, clientId?: string | null): Promise<void> {
   const act = ownerNickname.trim()
   if (!act) throw new Error('nickname is required')
   const d = await getDoc(roomRef(roomId))
   if (!d.exists()) throw new Error('Room not found')
-  const data = d.data() as Record<string, unknown>
-  if (String(data.ownerNickname ?? '') !== act) throw new Error('only owner can delete room')
+  const room = roomFromSnap(d.id, d.data() as Record<string, unknown>)
+  if (!(await isRoomOwnerFull(room, roomId, act, clientId))) throw new Error('only owner can delete room')
 
   await deleteAllDocsInCollection(messagesCol(roomId))
   await deleteAllDocsInCollection(membersCol(roomId))

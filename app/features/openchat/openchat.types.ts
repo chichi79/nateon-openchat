@@ -6,6 +6,8 @@ export type OpenChatRoom = {
   policy: RoomPolicy
   tags: string[]
   ownerNickname: string
+  /** 브라우저 익명 id — 방장 권한 판별에 사용(닉네임 변경과 분리) */
+  ownerClientId?: string
   createdAt: string
 }
 
@@ -44,6 +46,7 @@ export type CreateRoomRequest = {
   policy: RoomPolicy
   tags: string[]
   ownerNickname: string
+  ownerClientId?: string
 }
 
 export type CreateRoomResponse = {
@@ -85,6 +88,7 @@ export type ListRoomMembersResponse = {
 export type JoinRoomRequest = {
   nickname: string
   inviteCode?: string
+  clientId?: string
 }
 
 export type JoinRoomResponse = {

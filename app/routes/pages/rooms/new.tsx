@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useActionData, useNavigate, useSubmit } from 'react-router'
 
 import type { RoomPolicy } from '@/features/openchat/openchat.types'
+import { ensureOpenchatClientId } from '@/lib/openchat-identity'
 import { createRoom } from '@/services/openchat.service'
 import { useLocalStorageState } from '@/hooks/use-local-storage-state'
 
@@ -10,14 +11,20 @@ export async function clientAction({ request }: { request: Request }) {
   const title = String(form.get('title') ?? '').trim()
   const policy = String(form.get('policy') ?? '').trim() as RoomPolicy
   const tagsRaw = String(form.get('tags') ?? '').trim()
-  const ownerNickname = String(form.get('ownerNickname') ?? '게스트').trim()
+  const ownerNickname = String(form.get('ownerNickname') ?? 'ㅇㅇ').trim()
   const tags = tagsRaw
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean)
 
   try {
-    const room = await createRoom({ title, policy, tags, ownerNickname })
+    const room = await createRoom({
+      title,
+      policy,
+      tags,
+      ownerNickname,
+      ownerClientId: ensureOpenchatClientId(),
+    })
     return { room, error: undefined as string | undefined }
   } catch (e) {
     const message = e instanceof Error ? e.message : '방을 만들 수 없습니다.'
@@ -72,7 +79,7 @@ export default function NewRoomPage() {
   const navigate = useNavigate()
   const submit = useSubmit()
   const actionData = useActionData() as undefined | { room?: { id: string }; error?: string }
-  const [nickname] = useLocalStorageState('openchat.nickname', '게스트')
+  const [nickname] = useLocalStorageState('openchat.nickname', 'ㅇㅇ')
 
   const [title, setTitle] = useState('')
   const [policy, setPolicy] = useState<RoomPolicy>('gated_open')
@@ -122,7 +129,7 @@ export default function NewRoomPage() {
           submit(e.currentTarget, { method: 'post' })
         }}
       >
-        <input type='hidden' name='ownerNickname' value={nickname || '게스트'} />
+        <input type='hidden' name='ownerNickname' value={nickname || 'ㅇㅇ'} />
 
         <div className='space-y-2'>
           <label htmlFor='title' className='block text-sm font-medium'>
@@ -137,7 +144,7 @@ export default function NewRoomPage() {
             className='input'
             autoFocus
           />
-          <div className='text-xs text-slate-500 dark:text-zinc-500'>방장: {nickname || '게스트'}</div>
+          <div className='text-xs text-slate-500 dark:text-zinc-500'>방장: {nickname || 'ㅇㅇ'}</div>
         </div>
 
         <div className='space-y-2'>

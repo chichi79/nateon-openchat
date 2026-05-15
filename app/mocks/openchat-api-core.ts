@@ -154,16 +154,39 @@ function forbidden(message = 'Forbidden') {
   return json({ error: message }, { status: 403 })
 }
 
-function isBlocked(roomId: string, nickname: string) {
-  return (db.blockedByRoomId[roomId] ?? []).includes(nickname)
+function readClientIdFromRequest(req: Request): string | null {
+  const h = req.headers.get('x-openchat-client-id')
+  const t = h?.trim()
+  return t || null
+}
+
+function resolveMemberKey(roomId: string, nickname: string, clientId: string | null | undefined): string {
+  const cid = (clientId ?? '').trim()
+  if (cid && db.clientIdToMemberKeyByRoomId[roomId]?.[cid]) {
+    return db.clientIdToMemberKeyByRoomId[roomId][cid]!
+  }
+  return nickname
+}
+
+function isBlocked(roomId: string, nickname: string, clientId?: string | null) {
+  const key = resolveMemberKey(roomId, nickname, clientId)
+  return (db.blockedByRoomId[roomId] ?? []).includes(key)
 }
 
 function isManager(roomId: string, nickname: string) {
   return (db.managersByRoomId[roomId] ?? []).includes(nickname)
 }
 
-function isModerator(room: OpenChatRoom, roomId: string, nickname: string) {
-  return room.ownerNickname === nickname || isManager(roomId, nickname)
+function isModerator(room: OpenChatRoom, roomId: string, nickname: string, clientId?: string | null) {
+  const key = resolveMemberKey(roomId, nickname, clientId)
+  const ownerByClient = !!(room.ownerClientId && clientId?.trim() && room.ownerClientId === clientId.trim())
+  return ownerByClient || room.ownerNickname === key || isManager(roomId, key)
+}
+
+function isRoomOwner(room: OpenChatRoom, roomId: string, nickname: string, clientId?: string | null) {
+  if (room.ownerClientId && clientId?.trim() && room.ownerClientId === clientId.trim()) return true
+  const key = resolveMemberKey(roomId, nickname, clientId)
+  return room.ownerNickname === key
 }
 
 function clearExpiredPending(roomId: string, nickname: string) {
@@ -249,6 +272,7 @@ async function handleCreateRoom(method: string, request: Request) {
   const title = (body?.title ?? '').trim()
   const policy = String(body?.policy ?? '').trim()
   const ownerNickname = (body?.ownerNickname ?? '').trim()
+  const ownerClientId = (body?.ownerClientId ?? '').trim()
   const tags = Array.isArray(body?.tags) ? body!.tags.map((t) => String(t).trim()).filter(Boolean) : []
 
   if (!title) return badRequest('title is required')
@@ -269,11 +293,16 @@ async function handleCreateRoom(method: string, request: Request) {
     policy: policy as OpenChatRoom['policy'],
     tags,
     ownerNickname,
+    ...(ownerClientId ? { ownerClientId } : {}),
     createdAt: nowIso(),
   }
 
   db.rooms = [room, ...db.rooms]
   db.membersByRoomId[id] = { [ownerNickname]: 'member' }
+  db.clientIdToMemberKeyByRoomId[id] = {
+    ...(db.clientIdToMemberKeyByRoomId[id] ?? {}),
+    ...(ownerClientId ? { [ownerClientId]: ownerNickname } : {}),
+  }
   db.pendingRequestedAtByRoomId[id] = {}
   db.managersByRoomId[id] = []
   db.blockedByRoomId[id] = []
@@ -315,11 +344,15 @@ async function handleDeleteRoom(method: string, roomId: string, request: Request
   }
   const nickname = (body?.nickname ?? '').trim()
   if (!nickname) return badRequest('nickname is required')
-  if (room.ownerNickname !== nickname) return forbidden('only owner can delete room')
+  const clientId = readClientIdFromRequest(request)
+  const ok =
+    (room.ownerClientId && clientId && room.ownerClientId === clientId.trim()) || room.ownerNickname === nickname
+  if (!ok) return forbidden('only owner can delete room')
 
   db.rooms = db.rooms.filter((r) => r.id !== roomId)
   delete db.messagesByRoomId[roomId]
   delete db.membersByRoomId[roomId]
+  delete db.clientIdToMemberKeyByRoomId[roomId]
   delete db.pendingRequestedAtByRoomId[roomId]
   delete db.managersByRoomId[roomId]
   delete db.blockedByRoomId[roomId]
@@ -355,10 +388,13 @@ async function handleMessages(method: string, roomId: string, request: Request) 
     if (!sender) return badRequest('sender is required')
     if (!text && (!attachments || attachments.length === 0)) return badRequest('text or attachments is required')
 
+    const msgCid = readClientIdFromRequest(request)
+    const senderKey = resolveMemberKey(roomId, sender, msgCid)
+
     // 정책별 메시지 전송 제한
     if (room.policy === 'invite' || room.policy === 'gated_open') {
-      if (isBlocked(roomId, sender)) return forbidden('blocked from this room')
-      const status = getMembershipStatus(roomId, sender)
+      if (isBlocked(roomId, sender, msgCid)) return forbidden('blocked from this room')
+      const status = getMembershipStatus(roomId, senderKey)
       if (status !== 'member') return forbidden('Not a member')
     }
 
@@ -403,14 +439,16 @@ async function handleDeleteMessage(method: string, roomId: string, messageId: st
   }
   const nickname = (body?.nickname ?? '').trim()
   if (!nickname) return badRequest('nickname is required')
+  const delCid = readClientIdFromRequest(request)
+  const effectiveKey = resolveMemberKey(roomId, nickname, delCid)
 
   const list = db.messagesByRoomId[roomId] ?? []
   const idx = list.findIndex((m) => m.id === messageId)
   if (idx < 0) return notFound('Message not found')
 
   const msg = list[idx]!
-  const isMod = room.ownerNickname === nickname || isManager(roomId, nickname)
-  const isOwn = msg.sender === nickname
+  const isMod = isModerator(room, roomId, nickname, delCid)
+  const isOwn = msg.sender === nickname || msg.sender === effectiveKey
   if (!isMod && !isOwn) return forbidden('No permission')
   if (!isMod && isOwn) {
     const age = Date.now() - new Date(msg.createdAt).getTime()
@@ -449,12 +487,15 @@ async function handleReadCursor(method: string, roomId: string, request: Request
   if (!nickname) return badRequest('nickname is required')
   if (!upToCreatedAt) return badRequest('upToCreatedAt is required')
 
+  const rcCid = readClientIdFromRequest(request)
+  const key = resolveMemberKey(roomId, nickname, rcCid)
+
   if (room.policy === 'invite' || room.policy === 'gated_open') {
-    if (isBlocked(roomId, nickname)) return forbidden('blocked from this room')
-    if (getMembershipStatus(roomId, nickname) !== 'member') return forbidden('Not a member')
+    if (isBlocked(roomId, nickname, rcCid)) return forbidden('blocked from this room')
+    if (getMembershipStatus(roomId, key) !== 'member') return forbidden('Not a member')
   }
 
-  db.readStatesByRoomId[roomId] = { ...(db.readStatesByRoomId[roomId] ?? {}), [nickname]: upToCreatedAt }
+  db.readStatesByRoomId[roomId] = { ...(db.readStatesByRoomId[roomId] ?? {}), [key]: upToCreatedAt }
   persist()
   return json({ ok: true as const })
 }
@@ -467,7 +508,7 @@ async function handleReadStates(method: string, roomId: string) {
   return json({ states })
 }
 
-async function handleMembership(method: string, roomId: string, url: URL) {
+async function handleMembership(method: string, roomId: string, url: URL, req: Request) {
   if (method !== 'GET') return methodNotAllowed()
 
   const nickname = (url.searchParams.get('nickname') ?? '').trim()
@@ -476,15 +517,19 @@ async function handleMembership(method: string, roomId: string, url: URL) {
   const room = db.rooms.find((r) => r.id === roomId)
   if (!room) return notFound('Room not found')
 
-  const status = getMembershipStatus(roomId, nickname)
+  const clientId = readClientIdFromRequest(req)
+  const effectiveKey = resolveMemberKey(roomId, nickname, clientId)
+  clearExpiredPending(roomId, effectiveKey)
+  const status = getMembershipStatus(roomId, effectiveKey)
   const payload: GetMembershipResponse = {
     roomId,
     nickname,
     status,
-    pendingExpiresAt: status === 'pending' ? pendingExpiresAt(roomId, nickname) : undefined,
+    pendingExpiresAt: status === 'pending' ? pendingExpiresAt(roomId, effectiveKey) : undefined,
     moderation: {
-      isOwner: room.ownerNickname === nickname,
-      isManager: isManager(roomId, nickname),
+      isOwner:
+        !!(room.ownerClientId && clientId && room.ownerClientId === clientId.trim()) || room.ownerNickname === effectiveKey,
+      isManager: isManager(roomId, effectiveKey),
     },
   }
   return json(payload)
@@ -507,12 +552,15 @@ async function handleJoin(method: string, roomId: string, request: Request) {
   const inviteCode = (body?.inviteCode ?? '').trim()
   if (!nickname) return badRequest('nickname is required')
 
-  if (isBlocked(roomId, nickname)) return forbidden('blocked from this room')
+  const joinCid = (body?.clientId ?? '').trim() || readClientIdFromRequest(request)
+
+  if (isBlocked(roomId, nickname, joinCid || null)) return forbidden('blocked from this room')
 
   if (room.policy === 'open_link') {
     setMembershipStatus(roomId, nickname, 'member')
   } else if (room.policy === 'gated_open') {
-    const current = getMembershipStatus(roomId, nickname)
+    const memberKey = resolveMemberKey(roomId, nickname, joinCid || null)
+    const current = getMembershipStatus(roomId, memberKey)
     if (current === 'member') {
       // noop
     } else if (current === 'pending') {
@@ -528,14 +576,21 @@ async function handleJoin(method: string, roomId: string, request: Request) {
     setMembershipStatus(roomId, nickname, 'member')
   }
 
+  if (joinCid) {
+    const prev = db.clientIdToMemberKeyByRoomId[roomId]?.[joinCid]
+    const stableMemberKey = prev ?? nickname
+    db.clientIdToMemberKeyByRoomId[roomId] = { ...(db.clientIdToMemberKeyByRoomId[roomId] ?? {}), [joinCid]: stableMemberKey }
+  }
+
   persist()
 
-  const status = getMembershipStatus(roomId, nickname)
+  const statusKey = joinCid ? resolveMemberKey(roomId, nickname, joinCid) : nickname
+  const status = getMembershipStatus(roomId, statusKey)
   const payload: JoinRoomResponse = { roomId, nickname, status }
   return json(payload, { status: 200 })
 }
 
-async function handleRequests(method: string, roomId: string, url: URL) {
+async function handleRequests(method: string, roomId: string, url: URL, req: Request) {
   if (method !== 'GET') return methodNotAllowed()
 
   const nickname = (url.searchParams.get('nickname') ?? '').trim()
@@ -544,7 +599,8 @@ async function handleRequests(method: string, roomId: string, url: URL) {
   const room = db.rooms.find((r) => r.id === roomId)
   if (!room) return notFound('Room not found')
 
-  if (!isModerator(room, roomId, nickname)) return forbidden('Only moderators can view requests')
+  const cid = readClientIdFromRequest(req)
+  if (!isModerator(room, roomId, nickname, cid)) return forbidden('Only moderators can view requests')
 
   const members = db.membersByRoomId[roomId] ?? {}
   const pendingNicknames = Object.entries(members)
@@ -571,7 +627,8 @@ async function handleApprove(method: string, roomId: string, request: Request) {
   const targetNickname = (body?.targetNickname ?? '').trim()
   if (!ownerNickname) return badRequest('ownerNickname is required')
   if (!targetNickname) return badRequest('targetNickname is required')
-  if (!isModerator(room, roomId, ownerNickname)) return forbidden('Only moderators can approve')
+  const approveCid = readClientIdFromRequest(request)
+  if (!isModerator(room, roomId, ownerNickname, approveCid)) return forbidden('Only moderators can approve')
 
   const status = getMembershipStatus(roomId, targetNickname)
   if (status !== 'pending') return badRequest('target is not pending')
@@ -595,8 +652,10 @@ async function handleCancelPending(method: string, roomId: string, request: Requ
   }
   const nickname = (body?.nickname ?? '').trim()
   if (!nickname) return badRequest('nickname is required')
-  if (getMembershipStatus(roomId, nickname) !== 'pending') return badRequest('not pending')
-  setMembershipStatus(roomId, nickname, 'none')
+  const cancelCid = readClientIdFromRequest(request)
+  const cancelKey = resolveMemberKey(roomId, nickname, cancelCid)
+  if (getMembershipStatus(roomId, cancelKey) !== 'pending') return badRequest('not pending')
+  setMembershipStatus(roomId, cancelKey, 'none')
   persist()
   return json({ ok: true as const })
 }
@@ -617,7 +676,8 @@ async function handleReject(method: string, roomId: string, request: Request) {
   const targetNickname = (body?.targetNickname ?? '').trim()
   if (!actorNickname) return badRequest('actorNickname is required')
   if (!targetNickname) return badRequest('targetNickname is required')
-  if (!isModerator(room, roomId, actorNickname)) return forbidden('Only moderators can reject')
+  const rejectCid = readClientIdFromRequest(request)
+  if (!isModerator(room, roomId, actorNickname, rejectCid)) return forbidden('Only moderators can reject')
   if (getMembershipStatus(roomId, targetNickname) !== 'pending') return badRequest('target is not pending')
 
   setMembershipStatus(roomId, targetNickname, 'rejected')
@@ -641,8 +701,9 @@ async function handleKick(method: string, roomId: string, request: Request) {
   const targetNickname = (body?.targetNickname ?? '').trim()
   if (!actorNickname) return badRequest('actorNickname is required')
   if (!targetNickname) return badRequest('targetNickname is required')
-  if (!isModerator(room, roomId, actorNickname)) return forbidden('Only moderators can kick')
-  if (targetNickname === room.ownerNickname) return badRequest('cannot kick owner')
+  const kickCid = readClientIdFromRequest(request)
+  if (!isModerator(room, roomId, actorNickname, kickCid)) return forbidden('Only moderators can kick')
+  if (resolveMemberKey(roomId, targetNickname, null) === room.ownerNickname) return badRequest('cannot kick owner')
   if (getMembershipStatus(roomId, targetNickname) !== 'member') return badRequest('target is not a member')
 
   setMembershipStatus(roomId, targetNickname, 'none')
@@ -667,8 +728,9 @@ async function handleBlock(method: string, roomId: string, request: Request) {
   const targetNickname = (body?.targetNickname ?? '').trim()
   if (!actorNickname) return badRequest('actorNickname is required')
   if (!targetNickname) return badRequest('targetNickname is required')
-  if (!isModerator(room, roomId, actorNickname)) return forbidden('Only moderators can block')
-  if (targetNickname === room.ownerNickname) return badRequest('cannot block owner')
+  const blockCid = readClientIdFromRequest(request)
+  if (!isModerator(room, roomId, actorNickname, blockCid)) return forbidden('Only moderators can block')
+  if (resolveMemberKey(roomId, targetNickname, null) === room.ownerNickname) return badRequest('cannot block owner')
 
   const blocked = new Set(db.blockedByRoomId[roomId] ?? [])
   blocked.add(targetNickname)
@@ -695,7 +757,8 @@ async function handleUnblock(method: string, roomId: string, request: Request) {
   const targetNickname = (body?.targetNickname ?? '').trim()
   if (!actorNickname) return badRequest('actorNickname is required')
   if (!targetNickname) return badRequest('targetNickname is required')
-  if (!isModerator(room, roomId, actorNickname)) return forbidden('Only moderators can unblock')
+  const unblockCid = readClientIdFromRequest(request)
+  if (!isModerator(room, roomId, actorNickname, unblockCid)) return forbidden('Only moderators can unblock')
 
   db.blockedByRoomId[roomId] = (db.blockedByRoomId[roomId] ?? []).filter((n) => n !== targetNickname)
   persist()
@@ -718,10 +781,20 @@ async function handleDelegateOwner(method: string, roomId: string, request: Requ
   const toNickname = (body?.toNickname ?? '').trim()
   if (!fromNickname) return badRequest('fromNickname is required')
   if (!toNickname) return badRequest('toNickname is required')
-  if (room.ownerNickname !== fromNickname) return forbidden('only current owner can delegate')
+  const delOwnerCid = readClientIdFromRequest(request)
+  if (!isRoomOwner(room, roomId, fromNickname, delOwnerCid)) return forbidden('only current owner can delegate')
   if (getMembershipStatus(roomId, toNickname) !== 'member') return badRequest('new owner must be a member')
 
   room.ownerNickname = toNickname
+  const map = db.clientIdToMemberKeyByRoomId[roomId] ?? {}
+  let nextOwnerClient: string | undefined
+  for (const [cid, key] of Object.entries(map)) {
+    if (key === toNickname) {
+      nextOwnerClient = cid
+      break
+    }
+  }
+  room.ownerClientId = nextOwnerClient
   db.managersByRoomId[roomId] = (db.managersByRoomId[roomId] ?? []).filter((m) => m !== toNickname)
   persist()
   return json({ roomId, ownerNickname: toNickname })
@@ -743,7 +816,8 @@ async function handleManagersAdd(method: string, roomId: string, request: Reques
   const targetNickname = (body?.targetNickname ?? '').trim()
   if (!ownerNickname) return badRequest('ownerNickname is required')
   if (!targetNickname) return badRequest('targetNickname is required')
-  if (room.ownerNickname !== ownerNickname) return forbidden('only owner can add managers')
+  const mgrAddCid = readClientIdFromRequest(request)
+  if (!isRoomOwner(room, roomId, ownerNickname, mgrAddCid)) return forbidden('only owner can add managers')
   if (targetNickname === room.ownerNickname) return badRequest('owner is already moderator')
   if (getMembershipStatus(roomId, targetNickname) !== 'member') return badRequest('target must be a member')
 
@@ -770,14 +844,15 @@ async function handleManagersRemove(method: string, roomId: string, request: Req
   const targetNickname = (body?.targetNickname ?? '').trim()
   if (!ownerNickname) return badRequest('ownerNickname is required')
   if (!targetNickname) return badRequest('targetNickname is required')
-  if (room.ownerNickname !== ownerNickname) return forbidden('only owner can remove managers')
+  const mgrRmCid = readClientIdFromRequest(request)
+  if (!isRoomOwner(room, roomId, ownerNickname, mgrRmCid)) return forbidden('only owner can remove managers')
 
   db.managersByRoomId[roomId] = (db.managersByRoomId[roomId] ?? []).filter((m) => m !== targetNickname)
   persist()
   return json({ roomId, managers: db.managersByRoomId[roomId] })
 }
 
-async function handleInviteInfo(method: string, roomId: string, url: URL) {
+async function handleInviteInfo(method: string, roomId: string, url: URL, req: Request) {
   if (method !== 'GET') return methodNotAllowed()
 
   const nickname = (url.searchParams.get('nickname') ?? '').trim()
@@ -786,7 +861,8 @@ async function handleInviteInfo(method: string, roomId: string, url: URL) {
   const room = db.rooms.find((r) => r.id === roomId)
   if (!room) return notFound('Room not found')
   if (room.policy !== 'invite') return badRequest('not an invite room')
-  if (!isModerator(room, roomId, nickname)) return forbidden('Only moderators can view invite info')
+  const invCid = readClientIdFromRequest(req)
+  if (!isModerator(room, roomId, nickname, invCid)) return forbidden('Only moderators can view invite info')
 
   const state = db.inviteStateByRoomId[roomId] ?? { code: randomInviteCode(), expiresAt: defaultInviteExpiry() }
   db.inviteStateByRoomId[roomId] = state
@@ -809,7 +885,8 @@ async function handleInviteRegenerate(method: string, roomId: string, request: R
   }
   const ownerNickname = (body?.ownerNickname ?? '').trim()
   if (!ownerNickname) return badRequest('ownerNickname is required')
-  if (room.ownerNickname !== ownerNickname) return forbidden('only owner can regenerate invite code')
+  const regenCid = readClientIdFromRequest(request)
+  if (!isRoomOwner(room, roomId, ownerNickname, regenCid)) return forbidden('only owner can regenerate invite code')
 
   db.inviteStateByRoomId[roomId] = { code: randomInviteCode(), expiresAt: defaultInviteExpiry() }
   persist()
@@ -818,7 +895,7 @@ async function handleInviteRegenerate(method: string, roomId: string, request: R
   return json(payload)
 }
 
-async function handleListMembers(method: string, roomId: string, url: URL) {
+async function handleListMembers(method: string, roomId: string, url: URL, req: Request) {
   if (method !== 'GET') return methodNotAllowed()
 
   const nickname = (url.searchParams.get('nickname') ?? '').trim()
@@ -826,7 +903,8 @@ async function handleListMembers(method: string, roomId: string, url: URL) {
 
   const room = db.rooms.find((r) => r.id === roomId)
   if (!room) return notFound('Room not found')
-  if (!isModerator(room, roomId, nickname)) return forbidden('Only moderators can list members')
+  const listCid = readClientIdFromRequest(req)
+  if (!isModerator(room, roomId, nickname, listCid)) return forbidden('Only moderators can list members')
 
   const raw = db.membersByRoomId[roomId] ?? {}
   const members = Object.entries(raw)
@@ -861,11 +939,11 @@ async function handleListMembers(method: string, roomId: string, url: URL) {
       case 'deleteMessage':
         return handleDeleteMessage(method, match.roomId, match.messageId, req)
       case 'membership':
-        return handleMembership(method, match.roomId, url)
+        return handleMembership(method, match.roomId, url, req)
       case 'join':
         return handleJoin(method, match.roomId, req)
       case 'requests':
-        return handleRequests(method, match.roomId, url)
+        return handleRequests(method, match.roomId, url, req)
       case 'approve':
         return handleApprove(method, match.roomId, req)
       case 'cancelPending':
@@ -885,11 +963,11 @@ async function handleListMembers(method: string, roomId: string, url: URL) {
       case 'managersRemove':
         return handleManagersRemove(method, match.roomId, req)
       case 'inviteInfo':
-        return handleInviteInfo(method, match.roomId, url)
+        return handleInviteInfo(method, match.roomId, url, req)
       case 'inviteRegenerate':
         return handleInviteRegenerate(method, match.roomId, req)
       case 'members':
-        return handleListMembers(method, match.roomId, url)
+        return handleListMembers(method, match.roomId, url, req)
       case 'readCursor':
         return handleReadCursor(method, match.roomId, req)
       case 'readStates':

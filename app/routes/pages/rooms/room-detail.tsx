@@ -87,7 +87,7 @@ export async function clientAction({ request, params }: { request: Request; para
 
   const form = await request.formData()
   const text = String(form.get('text') ?? '')
-  const sender = String(form.get('sender') ?? '게스트')
+  const sender = String(form.get('sender') ?? 'ㅇㅇ')
   const replyToMessageId = String(form.get('replyToMessageId') ?? '') || undefined
   const attachmentsJson = String(form.get('attachmentsJson') ?? '')
   const attachments = attachmentsJson ? (JSON.parse(attachmentsJson) as OpenChatAttachment[]) : undefined
@@ -188,8 +188,8 @@ export default function RoomDetailPage() {
     data?: { message?: OpenChatMessage }
     state: 'idle' | 'loading' | 'submitting'
   }
-  const [nickname, setNickname] = useLocalStorageState('openchat.nickname', '게스트')
-  const senderName = nickname?.trim() || '게스트'
+  const [nickname, setNickname] = useLocalStorageState('openchat.nickname', 'ㅇㅇ')
+  const senderName = nickname?.trim() || 'ㅇㅇ'
   const formRef = useRef<HTMLFormElement | null>(null)
   const composeTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const chatBottomAnchorRef = useRef<HTMLLIElement | null>(null)
@@ -395,7 +395,7 @@ export default function RoomDetailPage() {
   }, [firestoreLive, canPost, canViewChatHistory, room.id, senderName])
 
   const typistLabel = useMemo(() => {
-    const meNick = (nickname || '게스트').trim()
+    const meNick = (nickname || 'ㅇㅇ').trim()
     const names = typingRows.map((r) => r.nickname).filter((n) => n && n !== meNick)
     const u = [...new Set(names)]
     if (u.length === 0) return null
@@ -747,7 +747,7 @@ export default function RoomDetailPage() {
 
   async function handleDelete(messageId: string) {
     try {
-      await deleteMessage(room.id, messageId, nickname || '게스트')
+      await deleteMessage(room.id, messageId, nickname || 'ㅇㅇ')
       void revalidator.revalidate()
     } catch (e) {
       alert(e instanceof Error ? e.message : '삭제 실패')
@@ -1773,7 +1773,7 @@ export default function RoomDetailPage() {
                 type='button'
                 className='btn-primary'
                 onClick={() => {
-                  setNickname(nicknameDraft.trim() || '게스트')
+                  setNickname(nicknameDraft.trim() || 'ㅇㅇ')
                   setIsNicknameOpen(false)
                 }}
               >
