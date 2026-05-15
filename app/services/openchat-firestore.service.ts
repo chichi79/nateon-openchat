@@ -15,6 +15,8 @@ import {
   updateDoc,
   where,
   writeBatch,
+  type CollectionReference,
+  type DocumentData,
 } from 'firebase/firestore'
 
 import type {
@@ -606,4 +608,37 @@ export async function listRoomMembers(roomId: string, actorNickname: string): Pr
     blocked: (rdata.blocked as string[]) ?? [],
     members,
   }
+}
+
+async function deleteAllDocsInCollection(colRef: CollectionReference<DocumentData>): Promise<void> {
+  const snap = await getDocs(colRef)
+  const fs = firestore()
+  let batch = writeBatch(fs)
+  let n = 0
+  for (const d of snap.docs) {
+    batch.delete(d.ref)
+    n++
+    if (n >= 450) {
+      await batch.commit()
+      batch = writeBatch(fs)
+      n = 0
+    }
+  }
+  if (n > 0) await batch.commit()
+}
+
+/** 방장만: 방 문서와 messages·memberRecords·typing·readStates 하위 문서를 삭제합니다. */
+export async function deleteRoom(roomId: string, ownerNickname: string): Promise<void> {
+  const act = ownerNickname.trim()
+  if (!act) throw new Error('nickname is required')
+  const d = await getDoc(roomRef(roomId))
+  if (!d.exists()) throw new Error('Room not found')
+  const data = d.data() as Record<string, unknown>
+  if (String(data.ownerNickname ?? '') !== act) throw new Error('only owner can delete room')
+
+  await deleteAllDocsInCollection(messagesCol(roomId))
+  await deleteAllDocsInCollection(membersCol(roomId))
+  await deleteAllDocsInCollection(typingCol(roomId))
+  await deleteAllDocsInCollection(readStatesCol(roomId))
+  await deleteDoc(roomRef(roomId))
 }

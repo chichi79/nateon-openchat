@@ -87,6 +87,19 @@ export async function deleteMessage(roomId: string, messageId: string, nickname:
   return data.ok
 }
 
+export async function deleteRoom(roomId: string, ownerNickname: string): Promise<void> {
+  if (useOpenchatFirestore()) {
+    await openchatFs.deleteRoom(roomId, ownerNickname)
+    return
+  }
+  const res = await fetch(`/api/openchat/rooms/${encodeURIComponent(roomId)}/delete-room`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nickname: ownerNickname }),
+  })
+  await parseJson<{ ok: true }>(res)
+}
+
 export async function getMembership(roomId: string, nickname: string): Promise<GetMembershipResponse> {
   if (useOpenchatFirestore()) return openchatFs.getMembership(roomId, nickname)
   const res = await fetch(

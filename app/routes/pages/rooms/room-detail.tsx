@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Link, isRouteErrorResponse, useFetcher, useLoaderData, useRevalidator } from 'react-router'
+import { Link, isRouteErrorResponse, useFetcher, useLoaderData, useNavigate, useRevalidator } from 'react-router'
 
 import type {
   GetMembershipResponse,
@@ -21,6 +21,7 @@ import {
   cancelPendingMembership,
   delegateOwner,
   deleteMessage,
+  deleteRoom,
   getInviteInfo,
   getMembership,
   getRoom,
@@ -181,6 +182,7 @@ export default function RoomDetailPage() {
     initialMe: GetMembershipResponse
   }
   const revalidator = useRevalidator()
+  const navigate = useNavigate()
   const fetcher = useFetcher() as unknown as {
     Form: typeof useFetcher.prototype.Form
     data?: { message?: OpenChatMessage }
@@ -205,6 +207,8 @@ export default function RoomDetailPage() {
   const [inviteMeta, setInviteMeta] = useState<RoomInviteInfo | null>(null)
   const [delegateTo, setDelegateTo] = useState('')
   const [managerTarget, setManagerTarget] = useState('')
+  const [deleteRoomBusy, setDeleteRoomBusy] = useState(false)
+  const [deleteRoomError, setDeleteRoomError] = useState<string | null>(null)
   const [replyTo, setReplyTo] = useState<OpenChatMessage | null>(null)
   const [attachments, setAttachments] = useState<OpenChatAttachment[]>([])
   const [newMsgCount, setNewMsgCount] = useState(0)
@@ -286,6 +290,7 @@ export default function RoomDetailPage() {
 
   useEffect(() => {
     setAdminError(null)
+    setDeleteRoomError(null)
   }, [room.id])
 
   useEffect(() => {
@@ -687,6 +692,22 @@ export default function RoomDetailPage() {
     }
   }
 
+  async function handleDeleteRoom() {
+    if (!isOwner) return
+    const label = room.title.length > 48 ? `${room.title.slice(0, 48)}…` : room.title
+    if (!window.confirm(`이 방을 삭제하면 메시지·멤버 데이터가 모두 사라지며 복구할 수 없습니다.\n\n「${label}」\n\n정말 삭제할까요?`)) return
+    setDeleteRoomBusy(true)
+    setDeleteRoomError(null)
+    try {
+      await deleteRoom(room.id, senderName)
+      navigate('/rooms')
+    } catch (e) {
+      setDeleteRoomError(e instanceof Error ? e.message : '방 삭제에 실패했습니다.')
+    } finally {
+      setDeleteRoomBusy(false)
+    }
+  }
+
   async function handleAddManager() {
     const t = managerTarget.trim()
     if (!t) return
@@ -923,7 +944,21 @@ export default function RoomDetailPage() {
         <Link to='/rooms' className='btn-ghost h-8 shrink-0 px-2.5 text-[11px] md:px-3'>
           목록
         </Link>
+        {isOwner ? (
+          <button
+            type='button'
+            className='btn-danger-ghost h-8 shrink-0 px-2.5 text-[11px] md:px-3'
+            disabled={deleteRoomBusy}
+            onClick={() => void handleDeleteRoom()}
+          >
+            {deleteRoomBusy ? '삭제 중…' : '방 삭제'}
+          </button>
+        ) : null}
       </div>
+
+      {deleteRoomError ? (
+        <div className='rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100'>{deleteRoomError}</div>
+      ) : null}
 
       {room.policy !== 'open_link' && membership !== 'member' ? (
         <div className='card overflow-hidden'>

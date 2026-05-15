@@ -144,6 +144,9 @@ function matchPath(pathname: string) {
   const readStatesMatch = pathname.match(/^\/api\/openchat\/rooms\/([^/]+)\/read-states$/)
   if (readStatesMatch) return { kind: 'readStates' as const, roomId: decodeURIComponent(readStatesMatch[1]!) }
 
+  const deleteRoomMatch = pathname.match(/^\/api\/openchat\/rooms\/([^/]+)\/delete-room$/)
+  if (deleteRoomMatch) return { kind: 'deleteRoom' as const, roomId: decodeURIComponent(deleteRoomMatch[1]!) }
+
   return { kind: 'unknown' as const }
 }
 
@@ -296,6 +299,35 @@ async function handleRoom(method: string, roomId: string) {
 
   const payload: GetRoomResponse = { room }
   return json(payload)
+}
+
+async function handleDeleteRoom(method: string, roomId: string, request: Request) {
+  if (method !== 'POST') return methodNotAllowed()
+
+  const room = db.rooms.find((r) => r.id === roomId)
+  if (!room) return notFound('Room not found')
+
+  let body: { nickname?: string } | undefined
+  try {
+    body = (await request.json()) as { nickname?: string }
+  } catch {
+    return badRequest('Invalid JSON body')
+  }
+  const nickname = (body?.nickname ?? '').trim()
+  if (!nickname) return badRequest('nickname is required')
+  if (room.ownerNickname !== nickname) return forbidden('only owner can delete room')
+
+  db.rooms = db.rooms.filter((r) => r.id !== roomId)
+  delete db.messagesByRoomId[roomId]
+  delete db.membersByRoomId[roomId]
+  delete db.pendingRequestedAtByRoomId[roomId]
+  delete db.managersByRoomId[roomId]
+  delete db.blockedByRoomId[roomId]
+  delete db.readStatesByRoomId[roomId]
+  delete db.inviteStateByRoomId[roomId]
+  persist()
+
+  return json({ ok: true as const })
 }
 
 async function handleMessages(method: string, roomId: string, request: Request) {
@@ -862,6 +894,8 @@ async function handleListMembers(method: string, roomId: string, url: URL) {
         return handleReadCursor(method, match.roomId, req)
       case 'readStates':
         return handleReadStates(method, match.roomId)
+      case 'deleteRoom':
+        return handleDeleteRoom(method, match.roomId, req)
       default:
         return notFound('Unknown API endpoint')
     }
