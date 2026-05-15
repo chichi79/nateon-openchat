@@ -38,7 +38,7 @@ export default function HomePage() {
           />
         </div>
 
-        <span className='chip chip-brand'>v0.1 · 클라이언트 전용 MVP</span>
+        <span className='chip chip-brand'>v0.1 · 클라이언트 전용 MVP · 연동 확인</span>
         <h1 className='mt-5 text-3xl font-semibold leading-[1.15] tracking-tight md:text-5xl'>
           업종별/주제별 오픈채팅을
           <br />
