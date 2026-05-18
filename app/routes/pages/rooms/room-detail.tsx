@@ -14,6 +14,7 @@ import { isViteEnvFalse } from '@/lib/vite-env-flags'
 import { openchatDisplaySenderName } from '@/lib/openchat-display-name'
 import { resolveMessageSenderLabel } from '@/lib/openchat-display-label'
 import { ensureOpenchatClientId, isOpenchatMessageMine } from '@/lib/openchat-identity'
+import { addSeenJoinClientIds, readSeenJoinClientIds } from '@/lib/openchat-join-toast-seen'
 import { showOpenchatToast } from '@/lib/openchat-toast'
 import { countReadersForMessage, textMentionsNickname } from '@/lib/openchat-read-receipt'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
@@ -234,6 +235,10 @@ export default function RoomDetailPage() {
   const suppressNextNewMsgBadgeRef = useRef(false)
   const nicknameModalRef = useRef<HTMLDivElement | null>(null)
   const knownMemberClientIdsRef = useRef<Set<string> | null>(null)
+  const toastedJoinClientIdsRef = useRef<Set<string>>(new Set())
+  const joinPresenceSyncedRef = useRef(false)
+  const [joinToastReady, setJoinToastReady] = useState(false)
+  const [joinPresenceEpoch, setJoinPresenceEpoch] = useState(0)
   const mentionNotifiedIdsRef = useRef<Set<string>>(new Set())
   const lastMentionRoomIdRef = useRef<string | null>(null)
   const typingPingTimerRef = useRef<number | null>(null)
@@ -303,28 +308,44 @@ export default function RoomDetailPage() {
 
   useEffect(() => {
     knownMemberClientIdsRef.current = null
-  }, [room.id])
+    joinPresenceSyncedRef.current = false
+    toastedJoinClientIdsRef.current = readSeenJoinClientIds(room.id)
+    setJoinToastReady(false)
+    setJoinPresenceEpoch(0)
+    if (!canViewChatHistory) return
+    const t = window.setTimeout(() => setJoinToastReady(true), 800)
+    return () => window.clearTimeout(t)
+  }, [room.id, canViewChatHistory])
 
   useEffect(() => {
-    if (!canViewChatHistory) return
+    if (!canViewChatHistory || !joinToastReady) return
 
-    const currentIds = Object.keys(displayNamesByClientId).filter((cid) => displayNamesByClientId[cid]?.trim())
-    const prev = knownMemberClientIdsRef.current
-
-    if (prev === null) {
-      knownMemberClientIdsRef.current = new Set(currentIds)
-      return
+    if (!joinPresenceSyncedRef.current) {
+      const stabilityTimer = window.setTimeout(() => {
+        const ids = Object.keys(displayNamesByClientId).filter((cid) => displayNamesByClientId[cid]?.trim())
+        knownMemberClientIdsRef.current = new Set(ids)
+        const toMark = ids.filter((cid) => cid !== myClientId)
+        addSeenJoinClientIds(room.id, toMark)
+        for (const cid of toMark) toastedJoinClientIdsRef.current.add(cid)
+        joinPresenceSyncedRef.current = true
+        setJoinPresenceEpoch((n) => n + 1)
+      }, 500)
+      return () => window.clearTimeout(stabilityTimer)
     }
 
-    const next = new Set(currentIds)
+    const currentIds = Object.keys(displayNamesByClientId).filter((cid) => displayNamesByClientId[cid]?.trim())
+    const prev = knownMemberClientIdsRef.current ?? new Set<string>()
+
     for (const cid of currentIds) {
-      if (cid === myClientId || prev.has(cid)) continue
+      if (cid === myClientId || prev.has(cid) || toastedJoinClientIdsRef.current.has(cid)) continue
+      toastedJoinClientIdsRef.current.add(cid)
+      addSeenJoinClientIds(room.id, [cid])
       const name = displayNamesByClientId[cid]?.trim() || '누군가'
       showOpenchatToast(`${name}님이 입장했습니다.`)
     }
 
-    knownMemberClientIdsRef.current = next
-  }, [displayNamesByClientId, canViewChatHistory, myClientId])
+    knownMemberClientIdsRef.current = new Set(currentIds)
+  }, [displayNamesByClientId, canViewChatHistory, myClientId, joinToastReady, joinPresenceEpoch, room.id])
 
   useEffect(() => {
     if (!firestoreLive) return
