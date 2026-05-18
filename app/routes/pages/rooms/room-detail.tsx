@@ -15,7 +15,7 @@ import { openchatDisplaySenderName } from '@/lib/openchat-display-name'
 import { resolveMessageSenderLabel } from '@/lib/openchat-display-label'
 import { ensureOpenchatClientId, isOpenchatMessageMine } from '@/lib/openchat-identity'
 import { addSeenJoinClientIds, readSeenJoinClientIds } from '@/lib/openchat-join-toast-seen'
-import { showOpenchatToast } from '@/lib/openchat-toast'
+import { clearOpenchatToasts, showOpenchatToast } from '@/lib/openchat-toast'
 import { countReadersForMessage, textMentionsNickname } from '@/lib/openchat-read-receipt'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
 import {
@@ -237,6 +237,9 @@ export default function RoomDetailPage() {
   const knownMemberClientIdsRef = useRef<Set<string> | null>(null)
   const toastedJoinClientIdsRef = useRef<Set<string>>(new Set())
   const joinPresenceSyncedRef = useRef(false)
+  const joinToastReadyAtRef = useRef(0)
+  const displayNamesByClientIdRef = useRef(displayNamesByClientId)
+  displayNamesByClientIdRef.current = displayNamesByClientId
   const [joinToastReady, setJoinToastReady] = useState(false)
   const [joinPresenceEpoch, setJoinPresenceEpoch] = useState(0)
   const mentionNotifiedIdsRef = useRef<Set<string>>(new Set())
@@ -301,6 +304,16 @@ export default function RoomDetailPage() {
 
   const canViewChatHistory = room.policy === 'open_link' || membership === 'member'
 
+  const commitJoinPresenceBaseline = useCallback(() => {
+    const latest = displayNamesByClientIdRef.current
+    const ids = Object.keys(latest).filter((cid) => latest[cid]?.trim())
+    knownMemberClientIdsRef.current = new Set(ids)
+    const toMark = ids.filter((cid) => cid !== myClientId)
+    addSeenJoinClientIds(room.id, toMark)
+    for (const cid of toMark) toastedJoinClientIdsRef.current.add(cid)
+    joinPresenceSyncedRef.current = true
+  }, [room.id, myClientId])
+
   useEffect(() => {
     if (!canViewChatHistory) return
     return subscribeRoomDisplayNames(room.id, senderName, setDisplayNamesByClientId)
@@ -309,7 +322,9 @@ export default function RoomDetailPage() {
   useEffect(() => {
     knownMemberClientIdsRef.current = null
     joinPresenceSyncedRef.current = false
+    joinToastReadyAtRef.current = 0
     toastedJoinClientIdsRef.current = readSeenJoinClientIds(room.id)
+    clearOpenchatToasts()
     setJoinToastReady(false)
     setJoinPresenceEpoch(0)
     if (!canViewChatHistory) return
@@ -318,34 +333,60 @@ export default function RoomDetailPage() {
   }, [room.id, canViewChatHistory])
 
   useEffect(() => {
+    if (joinToastReady) joinToastReadyAtRef.current = Date.now()
+  }, [joinToastReady, room.id])
+
+  useEffect(() => {
+    if (!canViewChatHistory || !joinToastReady) return
+    const forceSyncTimer = window.setTimeout(() => {
+      if (joinPresenceSyncedRef.current) return
+      commitJoinPresenceBaseline()
+      setJoinPresenceEpoch((n) => n + 1)
+    }, 3500)
+    return () => window.clearTimeout(forceSyncTimer)
+  }, [canViewChatHistory, joinToastReady, room.id, commitJoinPresenceBaseline])
+
+  useEffect(() => {
     if (!canViewChatHistory || !joinToastReady) return
 
+    const names = displayNamesByClientIdRef.current
+    const memberIds = (map: Record<string, string>) =>
+      Object.keys(map).filter((cid) => map[cid]?.trim())
+
     if (!joinPresenceSyncedRef.current) {
+      const joinToastMaxWaitMs = 3500
       const stabilityTimer = window.setTimeout(() => {
-        const ids = Object.keys(displayNamesByClientId).filter((cid) => displayNamesByClientId[cid]?.trim())
-        knownMemberClientIdsRef.current = new Set(ids)
-        const toMark = ids.filter((cid) => cid !== myClientId)
-        addSeenJoinClientIds(room.id, toMark)
-        for (const cid of toMark) toastedJoinClientIdsRef.current.add(cid)
-        joinPresenceSyncedRef.current = true
+        if (joinPresenceSyncedRef.current) return
+        const ids = memberIds(displayNamesByClientIdRef.current)
+        const waitedMs = Date.now() - joinToastReadyAtRef.current
+        if (ids.length === 0 && waitedMs < joinToastMaxWaitMs) return
+        commitJoinPresenceBaseline()
         setJoinPresenceEpoch((n) => n + 1)
       }, 500)
       return () => window.clearTimeout(stabilityTimer)
     }
 
-    const currentIds = Object.keys(displayNamesByClientId).filter((cid) => displayNamesByClientId[cid]?.trim())
+    const currentIds = memberIds(names)
     const prev = knownMemberClientIdsRef.current ?? new Set<string>()
 
     for (const cid of currentIds) {
       if (cid === myClientId || prev.has(cid) || toastedJoinClientIdsRef.current.has(cid)) continue
       toastedJoinClientIdsRef.current.add(cid)
       addSeenJoinClientIds(room.id, [cid])
-      const name = displayNamesByClientId[cid]?.trim() || '누군가'
-      showOpenchatToast(`${name}님이 입장했습니다.`)
+      const label = names[cid]?.trim() || '누군가'
+      showOpenchatToast(`${label}님이 입장했습니다.`)
     }
 
     knownMemberClientIdsRef.current = new Set(currentIds)
-  }, [displayNamesByClientId, canViewChatHistory, myClientId, joinToastReady, joinPresenceEpoch, room.id])
+  }, [
+    displayNamesByClientId,
+    canViewChatHistory,
+    myClientId,
+    joinToastReady,
+    joinPresenceEpoch,
+    room.id,
+    commitJoinPresenceBaseline,
+  ])
 
   useEffect(() => {
     if (!firestoreLive) return

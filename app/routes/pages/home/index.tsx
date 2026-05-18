@@ -40,9 +40,7 @@ export default function HomePage() {
 
         <span className='chip chip-brand'>v0.1 · 클라이언트 전용 MVP · 연동 확인</span>
         <h1 className='mt-5 text-3xl font-semibold leading-[1.15] tracking-tight md:text-5xl'>
-          업종별/주제별 오픈채팅을
-          <br />
-          <span className='text-brand-gradient'>백엔드 없이</span> 운영합니다.
+          업종별/주제별 <span className='text-brand-gradient'>오픈채팅</span> 
         </h1>
         <p className='mt-5 max-w-2xl text-[15px] leading-7 text-slate-600/90 dark:text-zinc-300/90'>
           팀룸(초대형) · 공개형(완전 오픈) · 신청/승인형(제한 공개) — 세 가지 방 정책을 하나의 모델로 통일했습니다.
