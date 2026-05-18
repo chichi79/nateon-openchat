@@ -920,3 +920,64 @@ export async function deleteRoom(roomId: string, ownerNickname: string, clientId
   await deleteAllDocsInCollection(readStatesCol(roomId))
   await deleteDoc(roomRef(roomId))
 }
+
+export function subscribeMyMembership(
+  roomId: string,
+  nickname: string,
+  clientId: string | undefined,
+  onUpdate: (data: GetMembershipResponse) => void,
+): () => void {
+  const emit = () => {
+    void getMembership(roomId, nickname, clientId).then(onUpdate).catch(() => {
+      onUpdate({
+        roomId,
+        nickname,
+        status: 'none',
+        moderation: { isOwner: false, isManager: false },
+      })
+    })
+  }
+
+  const cid = (clientId ?? '').trim()
+  if (cid) {
+    const q = query(membersCol(roomId), where('clientId', '==', cid), limit(1))
+    return onSnapshot(
+      q,
+      () => emit(),
+      (err) => {
+        console.error('[openchat-firestore] subscribeMyMembership', err)
+        emit()
+      },
+    )
+  }
+
+  const ref = doc(membersCol(roomId), memberDocId(nickname.trim()))
+  return onSnapshot(
+    ref,
+    () => emit(),
+    (err) => {
+      console.error('[openchat-firestore] subscribeMyMembership', err)
+      emit()
+    },
+  )
+}
+
+export function subscribeJoinRequests(
+  roomId: string,
+  onUpdate: (pendingNicknames: string[]) => void,
+): () => void {
+  const q = query(membersCol(roomId), where('status', '==', 'pending'))
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list = snap.docs
+        .map((d) => String(d.data().nickname ?? '').trim())
+        .filter(Boolean)
+      onUpdate(list)
+    },
+    (err) => {
+      console.error('[openchat-firestore] subscribeJoinRequests', err)
+      onUpdate([])
+    },
+  )
+}

@@ -190,6 +190,62 @@ export async function listJoinRequests(roomId: string, ownerNickname: string) {
   return data.pendingNicknames
 }
 
+export function subscribeMyMembership(
+  roomId: string,
+  nickname: string,
+  onUpdate: (data: GetMembershipResponse) => void,
+): () => void {
+  const clientId = browserClientId()
+  if (useOpenchatFirestore()) return openchatFs.subscribeMyMembership(roomId, nickname, clientId, onUpdate)
+  let cancelled = false
+  const tick = async () => {
+    if (cancelled) return
+    try {
+      const data = await getMembership(roomId, nickname)
+      if (!cancelled) onUpdate(data)
+    } catch {
+      if (!cancelled) {
+        onUpdate({
+          roomId,
+          nickname,
+          status: 'none',
+          moderation: { isOwner: false, isManager: false },
+        })
+      }
+    }
+  }
+  void tick()
+  const iv = window.setInterval(tick, 3000)
+  return () => {
+    cancelled = true
+    window.clearInterval(iv)
+  }
+}
+
+export function subscribeJoinRequests(
+  roomId: string,
+  actorNickname: string,
+  onUpdate: (pendingNicknames: string[]) => void,
+): () => void {
+  if (useOpenchatFirestore()) return openchatFs.subscribeJoinRequests(roomId, onUpdate)
+  let cancelled = false
+  const tick = async () => {
+    if (cancelled) return
+    try {
+      const list = await listJoinRequests(roomId, actorNickname)
+      if (!cancelled) onUpdate(list)
+    } catch {
+      if (!cancelled) onUpdate([])
+    }
+  }
+  void tick()
+  const iv = window.setInterval(tick, 3000)
+  return () => {
+    cancelled = true
+    window.clearInterval(iv)
+  }
+}
+
 export async function approveJoin(roomId: string, actorNickname: string, targetNickname: string) {
   if (useOpenchatFirestore()) return openchatFs.approveJoin(roomId, actorNickname, targetNickname, browserClientId())
   const res = await fetch(`/api/openchat/rooms/${encodeURIComponent(roomId)}/approve`, {

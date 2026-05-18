@@ -4,6 +4,7 @@ import { Link, isRouteErrorResponse, useFetcher, useLoaderData, useNavigate, use
 import type {
   GetMembershipResponse,
   ListRoomMembersResponse,
+  MembershipStatus,
   OpenChatAttachment,
   OpenChatMessage,
   OpenChatRoom,
@@ -15,6 +16,7 @@ import { openchatDisplaySenderName } from '@/lib/openchat-display-name'
 import { resolveMessageSenderLabel } from '@/lib/openchat-display-label'
 import { ensureOpenchatClientId, isOpenchatMessageMine } from '@/lib/openchat-identity'
 import { addSeenJoinClientIds, readSeenJoinClientIds } from '@/lib/openchat-join-toast-seen'
+import { isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
 import { clearOpenchatToasts, showOpenchatToast } from '@/lib/openchat-toast'
 import { countReadersForMessage, textMentionsNickname } from '@/lib/openchat-read-receipt'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
@@ -41,6 +43,8 @@ import {
   setReadCursor,
   setRoomDisplayName,
   setTypingActivity,
+  subscribeJoinRequests,
+  subscribeMyMembership,
   subscribeRoomDisplayNames,
   subscribeRoomReadStates,
   subscribeRoomTyping,
@@ -252,6 +256,9 @@ export default function RoomDetailPage() {
   const [joinPresenceEpoch, setJoinPresenceEpoch] = useState(0)
   const mentionNotifiedIdsRef = useRef<Set<string>>(new Set())
   const lastMentionRoomIdRef = useRef<string | null>(null)
+  const prevMembershipStatusRef = useRef<MembershipStatus>(initialMe.status)
+  const joinRequestsSyncedRef = useRef(false)
+  const knownPendingNicknamesRef = useRef<Set<string>>(new Set())
   const typingPingTimerRef = useRef<number | null>(null)
   const typingClearTimerRef = useRef<number | null>(null)
   const [isNicknameOpen, setIsNicknameOpen] = useState(false)
@@ -646,46 +653,49 @@ export default function RoomDetailPage() {
   }
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const data = await getMembership(room.id, senderName)
-        if (!cancelled) {
-          setMe(data)
-          if (data.displayName?.trim()) setMyDisplayName(data.displayName.trim())
-        }
-      } catch {
-        if (!cancelled)
-          setMe({
-            roomId: room.id,
-            nickname: senderName,
-            status: 'none',
-            moderation: { isOwner: false, isManager: false },
-          })
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [room.id, senderName])
+    prevMembershipStatusRef.current = initialMe.status
+    joinRequestsSyncedRef.current = false
+    knownPendingNicknamesRef.current = new Set()
+  }, [room.id, initialMe.status])
 
   useEffect(() => {
-    let cancelled = false
-    if (!isModerator) return
+    if (room.policy === 'open_link') return
+    return subscribeMyMembership(room.id, senderName, (data) => {
+      const prev = prevMembershipStatusRef.current
+      setMe(data)
+      if (data.displayName?.trim()) setMyDisplayName(data.displayName.trim())
 
-    void (async () => {
-      try {
-        const list = await listJoinRequests(room.id, senderName)
-        if (!cancelled) setPendingNicknames(list)
-      } catch (e) {
-        if (!cancelled) setAdminError(e instanceof Error ? e.message : '요청 목록 로드 실패')
+      if (prev !== data.status) {
+        if (prev === 'pending' && data.status === 'member') {
+          showOpenchatToast('가입이 승인되었습니다. 이제 채팅할 수 있어요.')
+          void revalidator.revalidate()
+        } else if (prev === 'pending' && data.status === 'rejected') {
+          showOpenchatToast('가입 신청이 거절되었습니다.')
+        } else if (prev === 'pending' && data.status === 'none') {
+          showOpenchatToast('가입 신청이 만료되었거나 취소되었습니다.')
+        }
+        prevMembershipStatusRef.current = data.status
       }
-    })()
+    })
+  }, [room.id, room.policy, senderName, revalidator])
 
-    return () => {
-      cancelled = true
-    }
-  }, [isModerator, room.id, membership, senderName])
+  useEffect(() => {
+    if (!isModerator || room.policy !== 'gated_open') return
+    return subscribeJoinRequests(room.id, senderName, (list) => {
+      if (!joinRequestsSyncedRef.current) {
+        knownPendingNicknamesRef.current = new Set(list)
+        joinRequestsSyncedRef.current = true
+        setPendingNicknames(list)
+        return
+      }
+      const prev = knownPendingNicknamesRef.current
+      for (const n of list) {
+        if (!prev.has(n)) showOpenchatToast(`${n}님이 가입을 신청했습니다.`)
+      }
+      knownPendingNicknamesRef.current = new Set(list)
+      setPendingNicknames(list)
+    })
+  }, [isModerator, room.policy, room.id, senderName])
 
   useEffect(() => {
     let cancelled = false
@@ -1320,7 +1330,7 @@ export default function RoomDetailPage() {
                 <ul className='mt-3 max-h-[min(50vh,24rem)] space-y-1.5 overflow-y-auto pr-1'>
                   {memberDirectory.members.map((row) => {
                     const rowLabel = row.displayName?.trim() || row.nickname
-                    const isRowOwner = row.nickname === memberDirectory.ownerNickname
+                    const isRowOwner = isOpenchatRoomOwner(room, row.nickname, row.clientId)
                     const isRowManager = memberDirectory.managers.includes(row.nickname)
                     return (
                       <li
@@ -1639,7 +1649,7 @@ export default function RoomDetailPage() {
       {showScrollTopFab ? (
         <button
           type='button'
-          className='focus-ring fixed bottom-[calc(max(var(--openchat-compose-h)+var(--openchat-compose-gap),16px+3.5rem+3rem+0.5rem)+max(1.25rem,env(safe-area-inset-bottom)))] right-[max(1.25rem,env(safe-area-inset-right))] z-[95] flex min-w-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-2.5 text-[10px] font-bold leading-tight tracking-wider text-slate-800 shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-zinc-800/95'
+          className='focus-ring fixed bottom-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+var(--openchat-fab-h)+var(--openchat-fab-stack-gap)+env(safe-area-inset-bottom,0px))] right-[max(1.25rem,env(safe-area-inset-right))] z-[95] flex min-w-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-2.5 text-[10px] font-bold leading-tight tracking-wider text-slate-800 shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-zinc-800/95'
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           aria-label='맨 위로'
         >

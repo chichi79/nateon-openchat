@@ -53,7 +53,7 @@ export function ThemeToggle() {
       className={clsx(
         'focus-ring fixed right-[max(1.25rem,env(safe-area-inset-right))] z-[100] flex h-12 w-12 items-center justify-center rounded-full border border-slate-200/90 bg-white/95 text-slate-800 shadow-[0_8px_30px_-8px_rgba(15,23,42,0.25)] backdrop-blur-md transition hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_10px_36px_-10px_rgba(0,0,0,0.65)] dark:hover:bg-zinc-800/95',
         stackWithTopFab
-          ? 'bottom-[calc(16px+3.5rem+max(1.25rem,env(safe-area-inset-bottom)))]'
+          ? 'bottom-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))]'
           : 'bottom-[calc(16px+max(1.25rem,env(safe-area-inset-bottom)))]',
       )}
       aria-label={isDark ? '밝은 테마로 전환' : '어두운 테마로 전환'}
