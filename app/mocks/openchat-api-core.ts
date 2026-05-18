@@ -16,7 +16,10 @@ import type {
   OpenChatRoom,
   PostMessageRequest,
   PostMessageResponse,
+  RoomDisplayNamesResponse,
   RoomInviteInfo,
+  SetRoomDisplayNameRequest,
+  SetRoomDisplayNameResponse,
 } from '@/features/openchat/openchat.types'
 
 export type OpenChatApiCoreOptions = {
@@ -146,6 +149,12 @@ function matchPath(pathname: string) {
   const deleteRoomMatch = pathname.match(/^\/api\/openchat\/rooms\/([^/]+)\/delete-room$/)
   if (deleteRoomMatch) return { kind: 'deleteRoom' as const, roomId: decodeURIComponent(deleteRoomMatch[1]!) }
 
+  const displayNamesMatch = pathname.match(/^\/api\/openchat\/rooms\/([^/]+)\/display-names$/)
+  if (displayNamesMatch) return { kind: 'displayNames' as const, roomId: decodeURIComponent(displayNamesMatch[1]!) }
+
+  const displayNameMatch = pathname.match(/^\/api\/openchat\/rooms\/([^/]+)\/display-name$/)
+  if (displayNameMatch) return { kind: 'setDisplayName' as const, roomId: decodeURIComponent(displayNameMatch[1]!) }
+
   return { kind: 'unknown' as const }
 }
 
@@ -186,6 +195,48 @@ function isRoomOwner(room: OpenChatRoom, roomId: string, nickname: string, clien
   if (room.ownerClientId && clientId?.trim() && room.ownerClientId === clientId.trim()) return true
   const key = resolveMemberKey(roomId, nickname, clientId)
   return room.ownerNickname === key
+}
+
+function resolveDisplayName(roomId: string, clientId: string, fallback: string) {
+  const cid = clientId.trim()
+  if (cid && db.displayNameByClientIdByRoomId[roomId]?.[cid]) {
+    return db.displayNameByClientIdByRoomId[roomId][cid]!
+  }
+  return fallback
+}
+
+function setDisplayNameForClient(roomId: string, clientId: string, displayName: string) {
+  const cid = clientId.trim()
+  const name = displayName.trim()
+  if (!cid || !name) return
+  db.displayNameByClientIdByRoomId[roomId] = { ...(db.displayNameByClientIdByRoomId[roomId] ?? {}), [cid]: name }
+}
+
+function ensureClientMembership(roomId: string, clientId: string, displayName: string) {
+  const cid = clientId.trim()
+  const name = displayName.trim()
+  if (!cid || !name) return
+  const memberKey = db.clientIdToMemberKeyByRoomId[roomId]?.[cid] ?? name
+  db.clientIdToMemberKeyByRoomId[roomId] = { ...(db.clientIdToMemberKeyByRoomId[roomId] ?? {}), [cid]: memberKey }
+  if (!db.displayNameByClientIdByRoomId[roomId]?.[cid]) {
+    setDisplayNameForClient(roomId, cid, name)
+  }
+  const members = db.membersByRoomId[roomId] ?? {}
+  if (!members[memberKey]) {
+    db.membersByRoomId[roomId] = { ...members, [memberKey]: 'member' }
+  }
+}
+
+function appendSystemMessage(roomId: string, text: string) {
+  const message: OpenChatMessage = {
+    id: uuid(),
+    roomId,
+    kind: 'system',
+    sender: '',
+    text,
+    createdAt: nowIso(),
+  }
+  db.messagesByRoomId[roomId] = [...(db.messagesByRoomId[roomId] ?? []), message]
 }
 
 function clearExpiredPending(roomId: string, nickname: string) {
@@ -302,6 +353,8 @@ async function handleCreateRoom(method: string, request: Request) {
     ...(db.clientIdToMemberKeyByRoomId[id] ?? {}),
     ...(ownerClientId ? { [ownerClientId]: ownerNickname } : {}),
   }
+  if (ownerClientId) setDisplayNameForClient(id, ownerClientId, ownerNickname)
+  db.displayNameByClientIdByRoomId[id] = db.displayNameByClientIdByRoomId[id] ?? {}
   db.pendingRequestedAtByRoomId[id] = {}
   db.managersByRoomId[id] = []
   db.blockedByRoomId[id] = []
@@ -352,6 +405,7 @@ async function handleDeleteRoom(method: string, roomId: string, request: Request
   delete db.messagesByRoomId[roomId]
   delete db.membersByRoomId[roomId]
   delete db.clientIdToMemberKeyByRoomId[roomId]
+  delete db.displayNameByClientIdByRoomId[roomId]
   delete db.pendingRequestedAtByRoomId[roomId]
   delete db.managersByRoomId[roomId]
   delete db.blockedByRoomId[roomId]
@@ -417,6 +471,9 @@ async function handleMessages(method: string, roomId: string, request: Request) 
     }
 
     db.messagesByRoomId[roomId] = [...(db.messagesByRoomId[roomId] ?? []), message]
+    if (room.policy === 'open_link' && msgCid) {
+      ensureClientMembership(roomId, msgCid, sender)
+    }
     persist()
 
     const payload: PostMessageResponse = { message }
@@ -517,6 +574,7 @@ async function handleMembership(method: string, roomId: string, url: URL, req: R
   const payload: GetMembershipResponse = {
     roomId,
     nickname,
+    displayName: clientId ? resolveDisplayName(roomId, clientId, effectiveKey) : effectiveKey,
     status,
     pendingExpiresAt: status === 'pending' ? pendingExpiresAt(roomId, effectiveKey) : undefined,
     moderation: {
@@ -573,6 +631,9 @@ async function handleJoin(method: string, roomId: string, request: Request) {
     const prev = db.clientIdToMemberKeyByRoomId[roomId]?.[joinCid]
     const stableMemberKey = prev ?? nickname
     db.clientIdToMemberKeyByRoomId[roomId] = { ...(db.clientIdToMemberKeyByRoomId[roomId] ?? {}), [joinCid]: stableMemberKey }
+    if (!db.displayNameByClientIdByRoomId[roomId]?.[joinCid]) {
+      setDisplayNameForClient(roomId, joinCid, nickname)
+    }
   }
 
   persist()
@@ -899,10 +960,16 @@ async function handleListMembers(method: string, roomId: string, url: URL, req: 
   const listCid = readClientIdFromRequest(req)
   if (!isModerator(room, roomId, nickname, listCid)) return forbidden('Only moderators can list members')
 
+  const cidMap = db.clientIdToMemberKeyByRoomId[roomId] ?? {}
+  const nameMap = db.displayNameByClientIdByRoomId[roomId] ?? {}
   const raw = db.membersByRoomId[roomId] ?? {}
   const members = Object.entries(raw)
     .filter(([, st]) => st === 'member' || st === 'pending' || st === 'rejected')
-    .map(([n, status]) => ({ nickname: n, status }))
+    .map(([memberKey, status]) => {
+      const clientId = Object.entries(cidMap).find(([, k]) => k === memberKey)?.[0]
+      const displayName = clientId ? nameMap[clientId] ?? memberKey : memberKey
+      return { nickname: memberKey, displayName, clientId, status }
+    })
 
   const payload: ListRoomMembersResponse = {
     roomId,
@@ -913,6 +980,76 @@ async function handleListMembers(method: string, roomId: string, url: URL, req: 
   }
   return json(payload)
 }
+
+async function handleDisplayNames(method: string, roomId: string, url: URL, req: Request) {
+  if (method !== 'GET') return methodNotAllowed()
+
+  const nickname = (url.searchParams.get('nickname') ?? '').trim()
+  if (!nickname) return badRequest('nickname is required')
+
+  const room = db.rooms.find((r) => r.id === roomId)
+  if (!room) return notFound('Room not found')
+
+  const cid = readClientIdFromRequest(req)
+  const key = resolveMemberKey(roomId, nickname, cid)
+  const st = getMembershipStatus(roomId, key)
+  if (room.policy !== 'open_link' && st !== 'member' && !isModerator(room, roomId, nickname, cid)) {
+    return forbidden('Not a member')
+  }
+
+  const members = db.membersByRoomId[roomId] ?? {}
+  const cidMap = db.clientIdToMemberKeyByRoomId[roomId] ?? {}
+  const nameMap = db.displayNameByClientIdByRoomId[roomId] ?? {}
+  const byClientId: Record<string, string> = {}
+  for (const [cid, name] of Object.entries(nameMap)) {
+    const memberKey = cidMap[cid]
+    if (memberKey && members[memberKey] === 'member') byClientId[cid] = name
+  }
+  const payload: RoomDisplayNamesResponse = { roomId, byClientId }
+  return json(payload)
+}
+
+async function handleSetDisplayName(method: string, roomId: string, request: Request) {
+  if (method !== 'POST') return methodNotAllowed()
+
+  const room = db.rooms.find((r) => r.id === roomId)
+  if (!room) return notFound('Room not found')
+
+  let body: SetRoomDisplayNameRequest | undefined
+  try {
+    body = (await request.json()) as SetRoomDisplayNameRequest
+  } catch {
+    return badRequest('Invalid JSON body')
+  }
+
+  const displayName = (body?.displayName ?? '').trim()
+  if (!displayName) return badRequest('displayName is required')
+
+  const clientId = readClientIdFromRequest(request)
+  if (!clientId) return badRequest('client id is required')
+
+  const memberKey = resolveMemberKey(roomId, displayName, clientId)
+  const st = getMembershipStatus(roomId, memberKey)
+  if (room.policy !== 'open_link' && st !== 'member') return forbidden('Not a member')
+
+  const previousDisplayName = resolveDisplayName(roomId, clientId, memberKey)
+  if (previousDisplayName === displayName) {
+    const payload: SetRoomDisplayNameResponse = { roomId, displayName, previousDisplayName }
+    return json(payload)
+  }
+
+  setDisplayNameForClient(roomId, clientId, displayName)
+  if (room.policy === 'open_link' && st === 'none') {
+    ensureClientMembership(roomId, clientId, displayName)
+  }
+
+  appendSystemMessage(roomId, `${previousDisplayName}님이 표시 이름을 ${displayName}(으)로 바꿨습니다.`)
+  persist()
+
+  const payload: SetRoomDisplayNameResponse = { roomId, displayName, previousDisplayName }
+  return json(payload)
+}
+
   return async function handleOpenChatApiRequest(req: Request): Promise<Response> {
     const synced = options.syncInMemoryFromPersistence?.()
     if (synced !== undefined) db = synced
@@ -967,6 +1104,10 @@ async function handleListMembers(method: string, roomId: string, url: URL, req: 
         return handleReadStates(method, match.roomId)
       case 'deleteRoom':
         return handleDeleteRoom(method, match.roomId, req)
+      case 'displayNames':
+        return handleDisplayNames(method, match.roomId, url, req)
+      case 'setDisplayName':
+        return handleSetDisplayName(method, match.roomId, req)
       default:
         return notFound('Unknown API endpoint')
     }

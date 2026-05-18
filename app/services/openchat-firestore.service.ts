@@ -30,9 +30,11 @@ import type {
   OpenChatMessage,
   OpenChatRoom,
   PostMessageRequest,
+  RoomDisplayNamesResponse,
   RoomInviteInfo,
   RoomMemberRow,
   RoomPolicy,
+  SetRoomDisplayNameResponse,
 } from '@/features/openchat/openchat.types'
 
 import { getFirebaseApp } from '@/firebase'
@@ -117,9 +119,11 @@ function roomFromSnap(id: string, data: Record<string, unknown>): OpenChatRoom {
 
 function msgFromSnap(roomId: string, id: string, data: Record<string, unknown>): OpenChatMessage {
   const senderClientIdRaw = data.senderClientId
+  const kindRaw = data.kind
   return {
     id,
     roomId,
+    kind: kindRaw === 'system' ? 'system' : 'chat',
     sender: String(data.sender ?? ''),
     senderClientId:
       typeof senderClientIdRaw === 'string' && senderClientIdRaw.trim() ? senderClientIdRaw.trim() : undefined,
@@ -183,6 +187,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
   const rref = doc(roomsCol())
   const id = rref.id
   const now = serverTimestamp()
+  const ownerClientId = body.ownerClientId?.trim() || undefined
   const room: OpenChatRoom = {
     id,
     title,
@@ -192,7 +197,6 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
     ownerClientId,
     createdAt: new Date().toISOString(),
   }
-  const ownerClientId = body.ownerClientId?.trim() || undefined
   const batch = writeBatch(firestore())
   batch.set(rref, {
     title: room.title,
@@ -209,6 +213,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
   })
   batch.set(doc(membersCol(id), memberDocId(room.ownerNickname)), {
     nickname: room.ownerNickname,
+    displayName: room.ownerNickname,
     status: 'member',
     requestedAt: null,
     ...(ownerClientId ? { clientId: ownerClientId } : {}),
@@ -383,6 +388,20 @@ export async function postMessage(
   const id = uuid()
   const now = serverTimestamp()
   const mref = doc(messagesCol(roomId), id)
+  if (room.policy === 'open_link' && senderClientId) {
+    const memberRef = doc(membersCol(roomId), memberDocId(sender))
+    const existing = await getDoc(memberRef)
+    if (!existing.exists()) {
+      await setDoc(memberRef, {
+        nickname: sender,
+        displayName: sender,
+        status: 'member',
+        clientId: senderClientId,
+        requestedAt: null,
+      })
+    }
+  }
+
   await setDoc(mref, {
     sender,
     ...(senderClientId ? { senderClientId } : {}),
@@ -472,9 +491,12 @@ export async function getMembership(roomId: string, nickname: string, clientId?:
     if (at) pendingExpiresAt = new Date(at.toMillis() + 24 * 60 * 60 * 1000).toISOString()
   }
   const isOwner = await isRoomOwnerFull(room, roomId, nickname, clientId)
+  const memberDoc = await getMemberDoc(roomId, nickname, clientId)
+  const displayName = String(memberDoc?.data()?.displayName ?? memberKey).trim() || memberKey
   return {
     roomId,
     nickname,
+    displayName,
     status,
     pendingExpiresAt,
     moderation: {
@@ -500,6 +522,10 @@ export async function joinRoom(roomId: string, body: JoinRoomRequest): Promise<M
     const existingEarly = await getMemberDoc(roomId, nickname, joinClientId)
     if (existingEarly?.exists()) {
       const est = existingEarly.data()?.status as MembershipStatus
+      const prevDisplay = String(existingEarly.data()?.displayName ?? '').trim()
+      if (!prevDisplay) {
+        await updateDoc(existingEarly.ref, { displayName: nickname })
+      }
       if (est === 'member') return 'member'
       if (est === 'pending' && room.policy === 'gated_open') return 'pending'
     }
@@ -507,6 +533,7 @@ export async function joinRoom(roomId: string, body: JoinRoomRequest): Promise<M
 
   const memberPayload = (status: 'member' | 'pending') => ({
     nickname,
+    displayName: nickname,
     status,
     requestedAt: status === 'pending' ? serverTimestamp() : null,
     ...(joinClientId ? { clientId: joinClientId } : {}),
@@ -720,7 +747,12 @@ export async function listRoomMembers(
       const data = d.data() as Record<string, unknown>
       const status = data.status as RoomMemberRow['status']
       const nickname = String(data.nickname ?? '')
-      if (status === 'member' || status === 'pending' || status === 'rejected') return { nickname, status }
+      const displayName = String(data.displayName ?? nickname).trim() || nickname
+      const clientIdRaw = data.clientId
+      const clientId = typeof clientIdRaw === 'string' && clientIdRaw.trim() ? clientIdRaw.trim() : undefined
+      if (status === 'member' || status === 'pending' || status === 'rejected') {
+        return { nickname, displayName, clientId, status }
+      }
       return null
     })
     .filter(Boolean) as RoomMemberRow[]
@@ -732,6 +764,107 @@ export async function listRoomMembers(
     blocked: (rdata.blocked as string[]) ?? [],
     members,
   }
+}
+
+export async function listRoomDisplayNames(
+  roomId: string,
+  actorNickname: string,
+  clientId?: string | null,
+): Promise<RoomDisplayNamesResponse> {
+  const room = await getRoom(roomId)
+  const st = await getMembershipStatus(roomId, actorNickname, clientId)
+  const isMod = await isModeratorFull(room, roomId, actorNickname, clientId)
+  if (room.policy !== 'open_link' && st !== 'member' && !isMod) throw new Error('Not a member')
+
+  const snap = await getDocs(membersCol(roomId))
+  const byClientId: Record<string, string> = {}
+  for (const d of snap.docs) {
+    const data = d.data() as Record<string, unknown>
+    if (String(data.status ?? '') !== 'member') continue
+    const cid = typeof data.clientId === 'string' ? data.clientId.trim() : ''
+    const dn = String(data.displayName ?? data.nickname ?? '').trim()
+    if (cid && dn) byClientId[cid] = dn
+  }
+  return { roomId, byClientId }
+}
+
+export function subscribeRoomDisplayNames(
+  roomId: string,
+  onUpdate: (names: Record<string, string>) => void,
+): () => void {
+  const q = query(membersCol(roomId))
+  return onSnapshot(
+    q,
+    (snap) => {
+      const byClientId: Record<string, string> = {}
+      for (const d of snap.docs) {
+        const data = d.data() as Record<string, unknown>
+        if (String(data.status ?? '') !== 'member') continue
+        const cid = typeof data.clientId === 'string' ? data.clientId.trim() : ''
+        const dn = String(data.displayName ?? data.nickname ?? '').trim()
+        if (cid && dn) byClientId[cid] = dn
+      }
+      onUpdate(byClientId)
+    },
+    (err) => {
+      console.error('[openchat-firestore] subscribeRoomDisplayNames', err)
+      onUpdate({})
+    },
+  )
+}
+
+async function appendSystemMessageFirestore(roomId: string, text: string) {
+  const id = uuid()
+  await setDoc(doc(messagesCol(roomId), id), {
+    kind: 'system',
+    sender: '',
+    text,
+    createdAt: serverTimestamp(),
+  })
+}
+
+export async function setRoomDisplayName(
+  roomId: string,
+  displayName: string,
+  clientId?: string | null,
+): Promise<SetRoomDisplayNameResponse> {
+  const room = await getRoom(roomId)
+  const name = displayName.trim()
+  const cid = (clientId ?? '').trim()
+  if (!name) throw new Error('displayName is required')
+  if (!cid) throw new Error('client id is required')
+
+  const memberKey = await resolveMemberKey(roomId, name, cid)
+  const st = await getMembershipStatus(roomId, name, cid)
+  if (room.policy !== 'open_link' && st !== 'member') throw new Error('Not a member')
+
+  const memberSnap = await getMemberDoc(roomId, name, cid)
+  const previousDisplayName = memberSnap?.exists()
+    ? String(memberSnap.data()?.displayName ?? memberSnap.data()?.nickname ?? '').trim()
+    : memberKey
+
+  if (previousDisplayName === name) {
+    return { roomId, displayName: name, previousDisplayName }
+  }
+
+  if (!memberSnap?.exists() && room.policy === 'open_link') {
+    await setDoc(doc(membersCol(roomId), memberDocId(name)), {
+      nickname: name,
+      displayName: name,
+      status: 'member',
+      clientId: cid,
+      requestedAt: null,
+    })
+  } else if (memberSnap?.exists()) {
+    await updateDoc(memberSnap.ref, { displayName: name })
+  }
+
+  await appendSystemMessageFirestore(
+    roomId,
+    `${previousDisplayName}님이 표시 이름을 ${name}(으)로 바꿨습니다.`,
+  )
+
+  return { roomId, displayName: name, previousDisplayName }
 }
 
 async function deleteAllDocsInCollection(colRef: CollectionReference<DocumentData>): Promise<void> {

@@ -12,7 +12,9 @@ import type {
 
 import { isViteEnvFalse } from '@/lib/vite-env-flags'
 import { openchatDisplaySenderName } from '@/lib/openchat-display-name'
+import { resolveMessageSenderLabel } from '@/lib/openchat-display-label'
 import { ensureOpenchatClientId, isOpenchatMessageMine } from '@/lib/openchat-identity'
+import { showOpenchatToast } from '@/lib/openchat-toast'
 import { countReadersForMessage, textMentionsNickname } from '@/lib/openchat-read-receipt'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
 import {
@@ -36,14 +38,16 @@ import {
   rejectJoin,
   removeRoomManager,
   setReadCursor,
+  setRoomDisplayName,
   setTypingActivity,
+  subscribeRoomDisplayNames,
   subscribeRoomReadStates,
   subscribeRoomTyping,
   unblockMember,
 } from '@/services/openchat.service'
 import { subscribeRoomMessages } from '@/services/openchat-firestore.service'
 import { useFocusTrap } from '@/hooks/use-focus-trap'
-import { useLocalStorageState } from '@/hooks/use-local-storage-state'
+import { OpenchatToastHost } from '@/components/openchat-toast-host'
 import { RouteErrorFallback } from '@/components/route-error-fallback'
 import { OPENCHAT_MOCK_DB_STORAGE_KEY } from '@/mocks/install-mock-fetch'
 import type { Route } from './+types/room-detail'
@@ -195,8 +199,11 @@ export default function RoomDetailPage() {
     data?: { message?: OpenChatMessage }
     state: 'idle' | 'loading' | 'submitting'
   }
-  const [nickname, setNickname] = useLocalStorageState('openchat.nickname', 'ㅇㅇ')
-  const senderName = nickname?.trim() || 'ㅇㅇ'
+  const defaultNick = openchatDisplaySenderName()
+  const [myDisplayName, setMyDisplayName] = useState(() => initialMe.displayName?.trim() || defaultNick)
+  const senderName = myDisplayName.trim() || defaultNick
+  const [joinDisplayName, setJoinDisplayName] = useState(defaultNick)
+  const [displayNamesByClientId, setDisplayNamesByClientId] = useState<Record<string, string>>({})
   const myClientId = ensureOpenchatClientId()
   const formRef = useRef<HTMLFormElement | null>(null)
   const composeBarRef = useRef<HTMLDivElement | null>(null)
@@ -226,6 +233,7 @@ export default function RoomDetailPage() {
   /** 전송 직후 useLayoutEffect에서 스크롤 처리 시, 다음 lastMsgId effect의 "새 메시지" 배지 1회 생략 */
   const suppressNextNewMsgBadgeRef = useRef(false)
   const nicknameModalRef = useRef<HTMLDivElement | null>(null)
+  const knownMemberClientIdsRef = useRef<Set<string> | null>(null)
   const mentionNotifiedIdsRef = useRef<Set<string>>(new Set())
   const lastMentionRoomIdRef = useRef<string | null>(null)
   const typingPingTimerRef = useRef<number | null>(null)
@@ -234,7 +242,7 @@ export default function RoomDetailPage() {
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(() =>
     typeof globalThis !== 'undefined' && typeof Notification !== 'undefined' ? Notification.permission : 'denied',
   )
-  const [nicknameDraft, setNicknameDraft] = useState(nickname)
+  const [displayNameDraft, setDisplayNameDraft] = useState(senderName)
   const [composeText, setComposeText] = useState('')
   const [typingRows, setTypingRows] = useState<{ nickname: string; atMs: number }[]>([])
   const [readStates, setReadStates] = useState<Record<string, string>>({})
@@ -279,6 +287,7 @@ export default function RoomDetailPage() {
   }, [
     initialMe.roomId,
     initialMe.nickname,
+    initialMe.displayName,
     initialMe.status,
     initialMe.pendingExpiresAt,
     initialMe.moderation?.isOwner,
@@ -286,6 +295,36 @@ export default function RoomDetailPage() {
   ])
 
   const canViewChatHistory = room.policy === 'open_link' || membership === 'member'
+
+  useEffect(() => {
+    if (!canViewChatHistory) return
+    return subscribeRoomDisplayNames(room.id, senderName, setDisplayNamesByClientId)
+  }, [room.id, senderName, canViewChatHistory])
+
+  useEffect(() => {
+    knownMemberClientIdsRef.current = null
+  }, [room.id])
+
+  useEffect(() => {
+    if (!canViewChatHistory) return
+
+    const currentIds = Object.keys(displayNamesByClientId).filter((cid) => displayNamesByClientId[cid]?.trim())
+    const prev = knownMemberClientIdsRef.current
+
+    if (prev === null) {
+      knownMemberClientIdsRef.current = new Set(currentIds)
+      return
+    }
+
+    const next = new Set(currentIds)
+    for (const cid of currentIds) {
+      if (cid === myClientId || prev.has(cid)) continue
+      const name = displayNamesByClientId[cid]?.trim() || '누군가'
+      showOpenchatToast(`${name}님이 입장했습니다.`)
+    }
+
+    knownMemberClientIdsRef.current = next
+  }, [displayNamesByClientId, canViewChatHistory, myClientId])
 
   useEffect(() => {
     if (!firestoreLive) return
@@ -320,8 +359,17 @@ export default function RoomDetailPage() {
   })()
 
   useEffect(() => {
-    setNicknameDraft(nickname)
-  }, [nickname])
+    setDisplayNameDraft(senderName)
+  }, [senderName])
+
+  useEffect(() => {
+    if (initialMe.displayName?.trim()) setMyDisplayName(initialMe.displayName.trim())
+  }, [initialMe.displayName])
+
+  const labelForMessage = useCallback(
+    (m: OpenChatMessage) => resolveMessageSenderLabel(m, displayNamesByClientId),
+    [displayNamesByClientId],
+  )
 
   const sortedMessages = useMemo(() => {
     return [...optimisticMessages].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
@@ -403,14 +451,14 @@ export default function RoomDetailPage() {
   }, [firestoreLive, canPost, canViewChatHistory, room.id, senderName])
 
   const typistLabel = useMemo(() => {
-    const meNick = (nickname || 'ㅇㅇ').trim()
+    const meNick = senderName.trim()
     const names = typingRows.map((r) => r.nickname).filter((n) => n && n !== meNick)
     const u = [...new Set(names)]
     if (u.length === 0) return null
     if (u.length === 1) return `${u[0]} 입력 중…`
     if (u.length === 2) return `${u[0]}, ${u[1]} 입력 중…`
     return `${u[0]} 외 ${u.length - 1}명 입력 중…`
-  }, [typingRows, nickname])
+  }, [typingRows, senderName])
 
   useEffect(() => {
     if (fetcher.state === 'idle' && fetcher.data?.message) {
@@ -502,7 +550,7 @@ export default function RoomDetailPage() {
       if (m.deletedAt || isOpenchatMessageMine(m, senderName, myClientId)) continue
       if (!textMentionsNickname(m.text, senderName)) continue
       try {
-        new Notification(`${m.sender}님이 회원님을 멘션`, {
+        new Notification(`${labelForMessage(m)}님이 회원님을 멘션`, {
           body: (m.text || '').slice(0, 140),
           tag: `openchat-mention-${room.id}-${m.id}`,
         })
@@ -510,12 +558,13 @@ export default function RoomDetailPage() {
         /* ignore */
       }
     }
-  }, [sortedMessages, senderName, myClientId, room.id])
+  }, [sortedMessages, senderName, myClientId, room.id, labelForMessage])
 
   async function refreshMe() {
     try {
       const data = await getMembership(room.id, senderName)
       setMe(data)
+      if (data.displayName?.trim()) setMyDisplayName(data.displayName.trim())
     } catch {
       setMe({
         roomId: room.id,
@@ -531,7 +580,10 @@ export default function RoomDetailPage() {
     void (async () => {
       try {
         const data = await getMembership(room.id, senderName)
-        if (!cancelled) setMe(data)
+        if (!cancelled) {
+          setMe(data)
+          if (data.displayName?.trim()) setMyDisplayName(data.displayName.trim())
+        }
       } catch {
         if (!cancelled)
           setMe({
@@ -606,7 +658,9 @@ export default function RoomDetailPage() {
   async function handleJoin() {
     setJoinError(null)
     try {
-      await joinRoom(room.id, { nickname: senderName, inviteCode: inviteCode || undefined })
+      const name = joinDisplayName.trim() || defaultNick
+      await joinRoom(room.id, { nickname: name, inviteCode: inviteCode || undefined })
+      setMyDisplayName(name)
       await refreshMe()
       void revalidator.revalidate()
     } catch (e) {
@@ -755,7 +809,7 @@ export default function RoomDetailPage() {
 
   async function handleDelete(messageId: string) {
     try {
-      await deleteMessage(room.id, messageId, nickname || 'ㅇㅇ')
+      await deleteMessage(room.id, messageId, senderName)
       void revalidator.revalidate()
     } catch (e) {
       alert(e instanceof Error ? e.message : '삭제 실패')
@@ -1009,6 +1063,16 @@ export default function RoomDetailPage() {
           </div>
 
           <div className='p-4'>
+            <label className='mb-3 block text-xs text-slate-600 dark:text-zinc-400'>
+              이 방에서 쓸 표시 이름
+              <input
+                value={joinDisplayName}
+                onChange={(e) => setJoinDisplayName(e.target.value)}
+                className='input mt-1'
+                placeholder='예: ㅇㅇ'
+                maxLength={32}
+              />
+            </label>
             {room.policy === 'invite' ? (
               <div className='flex flex-col gap-2 md:flex-row md:items-center'>
                 <input
@@ -1185,16 +1249,17 @@ export default function RoomDetailPage() {
 
                 <ul className='mt-3 max-h-[min(50vh,24rem)] space-y-1.5 overflow-y-auto pr-1'>
                   {memberDirectory.members.map((row) => {
+                    const rowLabel = row.displayName?.trim() || row.nickname
                     const isRowOwner = row.nickname === memberDirectory.ownerNickname
                     const isRowManager = memberDirectory.managers.includes(row.nickname)
                     return (
                       <li
-                        key={row.nickname}
+                        key={row.clientId ?? row.nickname}
                         className='flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 dark:border-white/5 bg-slate-100 dark:bg-black/15 px-3 py-2 text-sm'
                       >
                         <div className='flex items-center gap-2'>
-                          <Avatar name={row.nickname} />
-                          <span className='text-slate-800 dark:text-zinc-100'>{row.nickname}</span>
+                          <Avatar name={rowLabel} />
+                          <span className='text-slate-800 dark:text-zinc-100'>{rowLabel}</span>
                           <span className='text-[11px] text-slate-500 dark:text-zinc-500'>
                             {row.status === 'member' ? '멤버' : row.status === 'pending' ? '대기' : '거절됨'}
                           </span>
@@ -1277,9 +1342,21 @@ export default function RoomDetailPage() {
               }
 
               const m = it.msg
+              if (m.kind === 'system') {
+                return (
+                  <li key={m.id} className='flex justify-center py-2'>
+                    <span className='rounded-full border border-slate-200 dark:border-white/5 bg-slate-900/[0.04] dark:bg-white/[0.03] px-3 py-1 text-center text-[11px] text-slate-600 dark:text-zinc-400'>
+                      {m.text}
+                    </span>
+                  </li>
+                )
+              }
+
+              const senderLabel = labelForMessage(m)
               const isMine = isOpenchatMessageMine(m, senderName, myClientId)
               const readCount = isMine && !m.deletedAt ? countReadersForMessage(m.createdAt, m.sender, readStates) : 0
               const replied = m.replyToMessageId ? sortedMessages.find((x) => x.id === m.replyToMessageId) : undefined
+              const repliedLabel = replied ? labelForMessage(replied) : ''
 
               return (
                 <li
@@ -1291,7 +1368,7 @@ export default function RoomDetailPage() {
                     messageSlideInIds.has(m.id) ? (isMine ? 'openchat-msg-slide-in-mine' : 'openchat-msg-slide-in-other') : '',
                   ].join(' ')}
                 >
-                  {!isMine ? <Avatar name={m.sender} /> : null}
+                  {!isMine ? <Avatar name={senderLabel} /> : null}
                   <div className='inline-flex min-w-0 max-w-[min(92vw,36rem)] flex-row items-end gap-1.5'>
                     <div
                       className={[
@@ -1302,7 +1379,7 @@ export default function RoomDetailPage() {
                       ].join(' ')}
                     >
                     {!isMine ? (
-                      <div className='text-xs font-semibold text-slate-700 dark:text-zinc-200'>{m.sender}</div>
+                      <div className='text-xs font-semibold text-slate-700 dark:text-zinc-200'>{senderLabel}</div>
                     ) : null}
 
                     <div
@@ -1344,7 +1421,7 @@ export default function RoomDetailPage() {
                                 ].join(' ')}
                                 onClick={() => scrollToQuotedMessage(replied.id)}
                               >
-                                <span className='font-medium'>{replied.sender}</span> ·{' '}
+                                <span className='font-medium'>{repliedLabel}</span> ·{' '}
                                 {replied.text
                                   ? replied.text.length > 180
                                     ? `${replied.text.slice(0, 180)}…`
@@ -1507,7 +1584,7 @@ export default function RoomDetailPage() {
       {showScrollTopFab ? (
         <button
           type='button'
-          className='focus-ring fixed bottom-[calc(var(--openchat-compose-h)+max(1rem,env(safe-area-inset-bottom)))] right-[max(1.25rem,env(safe-area-inset-right))] z-[95] flex min-w-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-2.5 text-[10px] font-bold leading-tight tracking-wider text-slate-800 shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-zinc-800/95'
+          className='focus-ring fixed bottom-[calc(max(var(--openchat-compose-h)+var(--openchat-compose-gap),16px+3.5rem+3rem+0.5rem)+max(1.25rem,env(safe-area-inset-bottom)))] right-[max(1.25rem,env(safe-area-inset-right))] z-[95] flex min-w-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-2.5 text-[10px] font-bold leading-tight tracking-wider text-slate-800 shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-zinc-800/95'
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           aria-label='맨 위로'
         >
@@ -1559,7 +1636,7 @@ export default function RoomDetailPage() {
                     onClick={() => scrollToQuotedMessage(replyTo.id)}
                   >
                     <div className='line-clamp-2 text-[13px] leading-snug text-slate-800 dark:text-zinc-100'>
-                      <span className='font-semibold text-slate-900 dark:text-white'>{replyTo.sender}</span>
+                      <span className='font-semibold text-slate-900 dark:text-white'>{labelForMessage(replyTo)}</span>
                       <span className='font-normal text-slate-600 dark:text-zinc-400'>
                         {' '}
                         <span className='text-slate-400 dark:text-zinc-600'>·</span>{' '}
@@ -1615,7 +1692,10 @@ export default function RoomDetailPage() {
                 type='button'
                 title={!canPost ? '입장 후 메시지를 보낼 수 있어요' : '표시 이름 변경'}
                 className='inline-flex h-10 max-w-[min(11rem,38vw)] shrink-0 items-center gap-1.5 rounded-full border border-slate-200 dark:border-white/5 bg-slate-900/[0.04] dark:bg-white/[0.03] px-2.5 text-[11px] text-slate-600 dark:text-zinc-300 transition hover:bg-slate-900/[0.05] dark:hover:bg-white/[0.06]'
-                onClick={() => setIsNicknameOpen(true)}
+                onClick={() => {
+                  setDisplayNameDraft(senderName)
+                  setIsNicknameOpen(true)
+                }}
               >
                 <Avatar name={senderName} size={18} />
                 <span className='min-w-0 truncate font-medium text-slate-800 dark:text-zinc-100'>{senderName}</span>
@@ -1657,7 +1737,7 @@ export default function RoomDetailPage() {
                     !canPost
                       ? '입장 후 메시지를 보낼 수 있어요'
                       : replyTo
-                        ? `${replyTo.sender}님에게 답장…`
+                        ? `${labelForMessage(replyTo)}님에게 답장…`
                         : '메시지를 입력해 보세요…'
                   }
                   disabled={!canPost}
@@ -1762,14 +1842,15 @@ export default function RoomDetailPage() {
             aria-labelledby='nickname-modal-title'
           >
             <div id='nickname-modal-title' className='text-sm font-semibold'>
-              닉네임 변경
+              이 방 표시 이름
             </div>
-            <p className='mt-1 text-sm text-slate-600 dark:text-zinc-400'>채팅 발신자 이름에 사용됩니다.</p>
+            <p className='mt-1 text-sm text-slate-600 dark:text-zinc-400'>이 방에서만 보이는 이름입니다. 변경 시 채팅에 안내 메시지가 올라갑니다.</p>
             <input
-              value={nicknameDraft}
-              onChange={(e) => setNicknameDraft(e.target.value)}
+              value={displayNameDraft}
+              onChange={(e) => setDisplayNameDraft(e.target.value)}
               className='input mt-4'
-              placeholder='예: md_민수'
+              placeholder='예: ㅇㅇ'
+              maxLength={32}
             />
             <div className='mt-5 flex justify-end gap-2'>
               <button type='button' className='btn-ghost' onClick={() => setIsNicknameOpen(false)}>
@@ -1779,8 +1860,17 @@ export default function RoomDetailPage() {
                 type='button'
                 className='btn-primary'
                 onClick={() => {
-                  setNickname(nicknameDraft.trim() || 'ㅇㅇ')
-                  setIsNicknameOpen(false)
+                  void (async () => {
+                    const name = displayNameDraft.trim() || defaultNick
+                    try {
+                      await setRoomDisplayName(room.id, name)
+                      setMyDisplayName(name)
+                      setIsNicknameOpen(false)
+                      void revalidator.revalidate()
+                    } catch (e) {
+                      window.alert(e instanceof Error ? e.message : '표시 이름 변경 실패')
+                    }
+                  })()
                 }}
               >
                 저장
@@ -1789,6 +1879,8 @@ export default function RoomDetailPage() {
           </div>
         </div>
       ) : null}
+
+      <OpenchatToastHost />
     </div>
   )
 }

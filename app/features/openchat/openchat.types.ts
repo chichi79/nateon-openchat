@@ -11,9 +11,12 @@ export type OpenChatRoom = {
   createdAt: string
 }
 
+export type OpenChatMessageKind = 'chat' | 'system'
+
 export type OpenChatMessage = {
   id: string
   roomId: string
+  kind?: OpenChatMessageKind
   sender: string
   /** 전송 시 브라우저 익명 id — 닉네임이 같아도 발신 구분용 */
   senderClientId?: string
@@ -60,6 +63,8 @@ export type MembershipStatus = 'none' | 'pending' | 'member' | 'rejected'
 export type GetMembershipResponse = {
   roomId: string
   nickname: string
+  /** 이 방에서의 표시 이름 */
+  displayName?: string
   status: MembershipStatus
   /** pending일 때 신청 만료 시각(ISO). 만료 후 status는 none으로 정리됨 */
   pendingExpiresAt?: string
@@ -75,8 +80,26 @@ export type RoomInviteInfo = {
 }
 
 export type RoomMemberRow = {
+  /** 멤버 내부 키(가입 시점) */
   nickname: string
+  displayName: string
+  clientId?: string
   status: Exclude<MembershipStatus, 'none'>
+}
+
+export type RoomDisplayNamesResponse = {
+  roomId: string
+  byClientId: Record<string, string>
+}
+
+export type SetRoomDisplayNameRequest = {
+  displayName: string
+}
+
+export type SetRoomDisplayNameResponse = {
+  roomId: string
+  displayName: string
+  previousDisplayName?: string
 }
 
 export type ListRoomMembersResponse = {

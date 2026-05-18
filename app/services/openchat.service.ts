@@ -12,8 +12,10 @@ import type {
   OpenChatMessage,
   PostMessageRequest,
   PostMessageResponse,
+  RoomDisplayNamesResponse,
   RoomInviteInfo,
   RoomPolicy,
+  SetRoomDisplayNameResponse,
 } from '@/features/openchat/openchat.types'
 
 import { useOpenchatFirestore } from '@/config/openchat-backend'
@@ -121,6 +123,49 @@ export async function getMembership(roomId: string, nickname: string): Promise<G
     { headers: { ...ocHeaders() } },
   )
   return parseJson<GetMembershipResponse>(res)
+}
+
+export async function listRoomDisplayNames(roomId: string, actorNickname: string): Promise<RoomDisplayNamesResponse> {
+  if (useOpenchatFirestore()) return openchatFs.listRoomDisplayNames(roomId, actorNickname, browserClientId())
+  const res = await fetch(
+    `/api/openchat/rooms/${encodeURIComponent(roomId)}/display-names?nickname=${encodeURIComponent(actorNickname)}`,
+    { headers: { ...ocHeaders() } },
+  )
+  return parseJson<RoomDisplayNamesResponse>(res)
+}
+
+export async function setRoomDisplayName(roomId: string, displayName: string): Promise<SetRoomDisplayNameResponse> {
+  if (useOpenchatFirestore()) return openchatFs.setRoomDisplayName(roomId, displayName, browserClientId())
+  const res = await fetch(`/api/openchat/rooms/${encodeURIComponent(roomId)}/display-name`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...ocHeaders() },
+    body: JSON.stringify({ displayName }),
+  })
+  return parseJson<SetRoomDisplayNameResponse>(res)
+}
+
+export function subscribeRoomDisplayNames(
+  roomId: string,
+  actorNickname: string,
+  onUpdate: (names: Record<string, string>) => void,
+): () => void {
+  if (useOpenchatFirestore()) return openchatFs.subscribeRoomDisplayNames(roomId, onUpdate)
+  let cancelled = false
+  const tick = async () => {
+    if (cancelled) return
+    try {
+      const data = await listRoomDisplayNames(roomId, actorNickname)
+      if (!cancelled) onUpdate(data.byClientId ?? {})
+    } catch {
+      if (!cancelled) onUpdate({})
+    }
+  }
+  void tick()
+  const iv = window.setInterval(tick, 3000)
+  return () => {
+    cancelled = true
+    window.clearInterval(iv)
+  }
 }
 
 export async function joinRoom(roomId: string, body: JoinRoomRequest) {

@@ -17,6 +17,8 @@ export type OpenChatDb = {
   membersByRoomId: Record<string, Record<string, MemberRecordStatus>>
   /** roomId → clientId → membersByRoomId 키(가입 시 닉네임) */
   clientIdToMemberKeyByRoomId: Record<string, Record<string, string>>
+  /** roomId → clientId → 방별 표시 이름 */
+  displayNameByClientIdByRoomId: Record<string, Record<string, string>>
   /** pending 신청 시각(ISO) — 만료 판단용 */
   pendingRequestedAtByRoomId: Record<string, Record<string, string>>
   /** @deprecated 로드 시 inviteStateByRoomId로 승격 */
@@ -44,6 +46,7 @@ export function migrateOpenChatDb(parsed: unknown): OpenChatDb {
   const messagesByRoomId = v.messagesByRoomId
   const membersByRoomId = { ...(v.membersByRoomId ?? {}) } as Record<string, Record<string, MemberRecordStatus>>
   const clientIdToMemberKeyByRoomId = { ...(v.clientIdToMemberKeyByRoomId ?? {}) } as Record<string, Record<string, string>>
+  const displayNameByClientIdByRoomId = { ...(v.displayNameByClientIdByRoomId ?? {}) } as Record<string, Record<string, string>>
   const pendingRequestedAtByRoomId = { ...(v.pendingRequestedAtByRoomId ?? {}) }
   const inviteStateByRoomId = { ...(v.inviteStateByRoomId ?? {}) }
   const managersByRoomId = { ...(v.managersByRoomId ?? {}) }
@@ -63,6 +66,7 @@ export function migrateOpenChatDb(parsed: unknown): OpenChatDb {
     const id = r.id
     membersByRoomId[id] = membersByRoomId[id] ?? {}
     clientIdToMemberKeyByRoomId[id] = clientIdToMemberKeyByRoomId[id] ?? {}
+    displayNameByClientIdByRoomId[id] = displayNameByClientIdByRoomId[id] ?? {}
     pendingRequestedAtByRoomId[id] = pendingRequestedAtByRoomId[id] ?? {}
     managersByRoomId[id] = managersByRoomId[id] ?? []
     blockedByRoomId[id] = blockedByRoomId[id] ?? []
@@ -80,6 +84,7 @@ export function migrateOpenChatDb(parsed: unknown): OpenChatDb {
     messagesByRoomId,
     membersByRoomId,
     clientIdToMemberKeyByRoomId,
+    displayNameByClientIdByRoomId,
     pendingRequestedAtByRoomId,
     inviteStateByRoomId,
     managersByRoomId,
@@ -159,12 +164,14 @@ export function createOpenChatDb(): OpenChatDb {
   }
 
   const clientIdToMemberKeyByRoomId: OpenChatDb['clientIdToMemberKeyByRoomId'] = {}
+  const displayNameByClientIdByRoomId: OpenChatDb['displayNameByClientIdByRoomId'] = {}
 
   return {
     rooms,
     messagesByRoomId,
     membersByRoomId,
     clientIdToMemberKeyByRoomId,
+    displayNameByClientIdByRoomId,
     pendingRequestedAtByRoomId,
     inviteStateByRoomId,
     managersByRoomId,

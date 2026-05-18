@@ -498,6 +498,20 @@ html[data-theme="light"] .glass {
   }
 }
 
+.openchat-toast-enter {
+  animation: openchat-toast-in 0.28s ease-out;
+}
+@keyframes openchat-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -533,6 +547,12 @@ html[data-theme="light"] .glass {
   .openchat-msg-slide-in-mine,
   .openchat-msg-slide-in-other {
     animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+
+  .openchat-toast-enter {
+    animation: none;
     opacity: 1;
     transform: none;
   }
