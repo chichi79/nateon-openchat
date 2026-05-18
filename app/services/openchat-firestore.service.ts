@@ -74,6 +74,26 @@ function memberDocId(nickname: string) {
   return nickname.replace(/\//g, '__')
 }
 
+/** clientId 가 있으면 표시 이름 충돌 없이 전용 문서 id 사용 */
+function memberRecordDocId(nickname: string, clientId?: string | null) {
+  const cid = (clientId ?? '').trim()
+  if (cid) return `cid__${cid.replace(/\//g, '__')}`
+  return memberDocId(nickname)
+}
+
+async function findMemberDocByLabel(roomId: string, label: string, status?: MembershipStatus) {
+  const trimmed = label.trim()
+  const snap = await getDocs(membersCol(roomId))
+  for (const d of snap.docs) {
+    const data = d.data() as Record<string, unknown>
+    if (status && data.status !== status) continue
+    const nick = String(data.nickname ?? '').trim()
+    const dn = String(data.displayName ?? nick).trim()
+    if (nick === trimmed || dn === trimmed) return d
+  }
+  return null
+}
+
 async function getMemberDoc(roomId: string, nickname: string, clientId?: string | null): Promise<DocumentSnapshot<DocumentData> | null> {
   const cid = (clientId ?? '').trim()
   if (cid) {
@@ -212,7 +232,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
       ? { inviteCode: randomInviteCode(), inviteExpiresAt: defaultInviteExpiry() }
       : {}),
   })
-  batch.set(doc(membersCol(id), memberDocId(room.ownerNickname)), {
+  batch.set(doc(membersCol(id), memberRecordDocId(room.ownerNickname, ownerClientId)), {
     nickname: room.ownerNickname,
     displayName: room.ownerNickname,
     status: 'member',
@@ -390,7 +410,7 @@ export async function postMessage(
   const now = serverTimestamp()
   const mref = doc(messagesCol(roomId), id)
   if (room.policy === 'open_link' && senderClientId) {
-    const memberRef = doc(membersCol(roomId), memberDocId(sender))
+    const memberRef = doc(membersCol(roomId), memberRecordDocId(sender, senderClientId))
     const existing = await getDoc(memberRef)
     if (!existing.exists()) {
       await setDoc(memberRef, {
@@ -539,13 +559,14 @@ export async function joinRoom(roomId: string, body: JoinRoomRequest): Promise<M
   })
 
   if (room.policy === 'open_link') {
-    await setDoc(doc(membersCol(roomId), memberDocId(nickname)), memberPayload('member'))
+    await setDoc(doc(membersCol(roomId), memberRecordDocId(nickname, joinClientId)), memberPayload('member'))
     return 'member'
   }
   if (room.policy === 'gated_open') {
-    const cur = await getMembershipStatus(roomId, nickname, joinClientId ?? null)
+    if (!joinClientId) throw new Error('client id is required')
+    const cur = await getMembershipStatus(roomId, nickname, joinClientId)
     if (cur === 'member' || cur === 'pending') return cur
-    await setDoc(doc(membersCol(roomId), memberDocId(nickname)), memberPayload('pending'))
+    await setDoc(doc(membersCol(roomId), memberRecordDocId(nickname, joinClientId)), memberPayload('pending'))
     return 'pending'
   }
   const code = String(rdata.inviteCode ?? '')
@@ -553,7 +574,7 @@ export async function joinRoom(roomId: string, body: JoinRoomRequest): Promise<M
   if (!inviteCode) throw new Error('inviteCode is required')
   if (code !== inviteCode) throw new Error('invalid inviteCode')
   if (exp && exp.toMillis() < Date.now()) throw new Error('invite code expired')
-  await setDoc(doc(membersCol(roomId), memberDocId(nickname)), memberPayload('member'))
+  await setDoc(doc(membersCol(roomId), memberRecordDocId(nickname, joinClientId)), memberPayload('member'))
   return 'member'
 }
 
@@ -572,9 +593,9 @@ export async function approveJoin(
 ) {
   const room = await getRoom(roomId)
   if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can approve')
-  const st = await getMembershipStatus(roomId, targetNickname)
-  if (st !== 'pending') throw new Error('target is not pending')
-  await updateDoc(doc(membersCol(roomId), memberDocId(targetNickname)), {
+  const targetDoc = await findMemberDocByLabel(roomId, targetNickname, 'pending')
+  if (!targetDoc) throw new Error('target is not pending')
+  await updateDoc(targetDoc.ref, {
     status: 'member',
     requestedAt: deleteField(),
   })
@@ -598,8 +619,9 @@ export async function rejectJoin(
 ) {
   const room = await getRoom(roomId)
   if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can reject')
-  if ((await getMembershipStatus(roomId, targetNickname)) !== 'pending') throw new Error('target is not pending')
-  await updateDoc(doc(membersCol(roomId), memberDocId(targetNickname)), { status: 'rejected', requestedAt: deleteField() })
+  const targetDoc = await findMemberDocByLabel(roomId, targetNickname, 'pending')
+  if (!targetDoc) throw new Error('target is not pending')
+  await updateDoc(targetDoc.ref, { status: 'rejected', requestedAt: deleteField() })
   return { roomId, targetNickname, status: 'rejected' as const }
 }
 

@@ -98,6 +98,14 @@ export async function clientAction({ request, params }: { request: Request; para
   const attachmentsJson = String(form.get('attachmentsJson') ?? '')
   const attachments = attachmentsJson ? (JSON.parse(attachmentsJson) as OpenChatAttachment[]) : undefined
 
+  const room = await getRoom(roomId)
+  if (room.policy !== 'open_link') {
+    const membership = await getMembership(roomId, sender)
+    if (membership.status !== 'member') {
+      throw new Response('승인된 멤버만 메시지를 보낼 수 있어요.', { status: 403 })
+    }
+  }
+
   const message = await postMessage(roomId, {
     sender,
     senderClientId: ensureOpenchatClientId(),
@@ -1586,22 +1594,7 @@ export default function RoomDetailPage() {
                         </div>
                       )}
                     </div>
-
-                    {!m.deletedAt ? (
-                      <div
-                        className={[
-                          'flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 dark:text-zinc-500 sm:opacity-60 sm:transition-opacity sm:duration-150 sm:group-hover:opacity-100',
-                          isMine ? 'justify-end' : 'justify-start',
-                        ].join(' ')}
-                      >
-                        {!m.deletedAt && isModerator ? (
-                          <button type='button' className='hover:text-rose-300' onClick={() => void handleDelete(m.id)}>
-                            삭제
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
+                    </div>
                   </div>
                 </li>
               )

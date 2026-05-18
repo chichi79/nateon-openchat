@@ -177,6 +177,36 @@ function resolveMemberKey(roomId: string, nickname: string, clientId: string | n
   return nickname
 }
 
+function memberStorageKeyForClient(clientId: string) {
+  return `cid:${clientId.trim()}`
+}
+
+function displayNameForMemberKey(roomId: string, memberKey: string) {
+  const cidMap = db.clientIdToMemberKeyByRoomId[roomId] ?? {}
+  const nameMap = db.displayNameByClientIdByRoomId[roomId] ?? {}
+  const cid = Object.entries(cidMap).find(([, key]) => key === memberKey)?.[0]
+  if (cid && nameMap[cid]) return nameMap[cid]
+  return memberKey.startsWith('cid:') ? '신청자' : memberKey
+}
+
+function pendingDisplayNamesForRoom(roomId: string) {
+  const members = db.membersByRoomId[roomId] ?? {}
+  return Object.entries(members)
+    .filter(([, st]) => st === 'pending')
+    .map(([key]) => displayNameForMemberKey(roomId, key))
+}
+
+function resolvePendingMemberKey(roomId: string, displayOrKey: string) {
+  const trimmed = displayOrKey.trim()
+  const members = db.membersByRoomId[roomId] ?? {}
+  for (const [key, st] of Object.entries(members)) {
+    if (st !== 'pending') continue
+    if (key === trimmed) return key
+    if (displayNameForMemberKey(roomId, key) === trimmed) return key
+  }
+  return null
+}
+
 function isBlocked(roomId: string, nickname: string, clientId?: string | null) {
   const key = resolveMemberKey(roomId, nickname, clientId)
   return (db.blockedByRoomId[roomId] ?? []).includes(key)
@@ -607,14 +637,18 @@ async function handleJoin(method: string, roomId: string, request: Request) {
   if (room.policy === 'open_link') {
     setMembershipStatus(roomId, nickname, 'member')
   } else if (room.policy === 'gated_open') {
-    const memberKey = resolveMemberKey(roomId, nickname, joinCid || null)
-    const current = getMembershipStatus(roomId, memberKey)
-    if (current === 'member') {
-      // noop
-    } else if (current === 'pending') {
+    if (!joinCid) return badRequest('client id is required')
+    const stableKey = memberStorageKeyForClient(joinCid)
+    db.clientIdToMemberKeyByRoomId[roomId] = {
+      ...(db.clientIdToMemberKeyByRoomId[roomId] ?? {}),
+      [joinCid]: stableKey,
+    }
+    setDisplayNameForClient(roomId, joinCid, nickname)
+    const current = getMembershipStatus(roomId, stableKey)
+    if (current === 'member' || current === 'pending') {
       // noop
     } else if (current === 'none' || current === 'rejected') {
-      setMembershipStatus(roomId, nickname, 'pending')
+      setMembershipStatus(roomId, stableKey, 'pending')
     }
   } else if (room.policy === 'invite') {
     const state = db.inviteStateByRoomId[roomId]
@@ -624,7 +658,7 @@ async function handleJoin(method: string, roomId: string, request: Request) {
     setMembershipStatus(roomId, nickname, 'member')
   }
 
-  if (joinCid) {
+  if (joinCid && room.policy !== 'gated_open') {
     const prev = db.clientIdToMemberKeyByRoomId[roomId]?.[joinCid]
     const stableMemberKey = prev ?? nickname
     db.clientIdToMemberKeyByRoomId[roomId] = { ...(db.clientIdToMemberKeyByRoomId[roomId] ?? {}), [joinCid]: stableMemberKey }
@@ -635,7 +669,12 @@ async function handleJoin(method: string, roomId: string, request: Request) {
 
   persist()
 
-  const statusKey = joinCid ? resolveMemberKey(roomId, nickname, joinCid) : nickname
+  const statusKey =
+    room.policy === 'gated_open' && joinCid
+      ? memberStorageKeyForClient(joinCid)
+      : joinCid
+        ? resolveMemberKey(roomId, nickname, joinCid)
+        : nickname
   const status = getMembershipStatus(roomId, statusKey)
   const payload: JoinRoomResponse = { roomId, nickname, status }
   return json(payload, { status: 200 })
@@ -653,12 +692,7 @@ async function handleRequests(method: string, roomId: string, url: URL, req: Req
   const cid = readClientIdFromRequest(req)
   if (!isModerator(room, roomId, nickname, cid)) return forbidden('Only moderators can view requests')
 
-  const members = db.membersByRoomId[roomId] ?? {}
-  const pendingNicknames = Object.entries(members)
-    .filter(([, st]) => st === 'pending')
-    .map(([n]) => n)
-
-  return json({ roomId, pendingNicknames })
+  return json({ roomId, pendingNicknames: pendingDisplayNamesForRoom(roomId) })
 }
 
 async function handleApprove(method: string, roomId: string, request: Request) {
@@ -681,10 +715,10 @@ async function handleApprove(method: string, roomId: string, request: Request) {
   const approveCid = readClientIdFromRequest(request)
   if (!isModerator(room, roomId, ownerNickname, approveCid)) return forbidden('Only moderators can approve')
 
-  const status = getMembershipStatus(roomId, targetNickname)
-  if (status !== 'pending') return badRequest('target is not pending')
+  const targetKey = resolvePendingMemberKey(roomId, targetNickname)
+  if (!targetKey || getMembershipStatus(roomId, targetKey) !== 'pending') return badRequest('target is not pending')
 
-  setMembershipStatus(roomId, targetNickname, 'member')
+  setMembershipStatus(roomId, targetKey, 'member')
   persist()
   return json({ roomId, targetNickname, status: 'member' })
 }
@@ -729,9 +763,10 @@ async function handleReject(method: string, roomId: string, request: Request) {
   if (!targetNickname) return badRequest('targetNickname is required')
   const rejectCid = readClientIdFromRequest(request)
   if (!isModerator(room, roomId, actorNickname, rejectCid)) return forbidden('Only moderators can reject')
-  if (getMembershipStatus(roomId, targetNickname) !== 'pending') return badRequest('target is not pending')
+  const targetKey = resolvePendingMemberKey(roomId, targetNickname)
+  if (!targetKey || getMembershipStatus(roomId, targetKey) !== 'pending') return badRequest('target is not pending')
 
-  setMembershipStatus(roomId, targetNickname, 'rejected')
+  setMembershipStatus(roomId, targetKey, 'rejected')
   persist()
   return json({ roomId, targetNickname, status: 'rejected' as const })
 }
