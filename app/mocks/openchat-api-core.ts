@@ -21,6 +21,7 @@ import type {
   SetRoomDisplayNameRequest,
   SetRoomDisplayNameResponse,
 } from '@/features/openchat/openchat.types'
+import { isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
 
 export type OpenChatApiCoreOptions = {
   loadInitialDb: () => OpenChatDb
@@ -187,14 +188,12 @@ function isManager(roomId: string, nickname: string) {
 
 function isModerator(room: OpenChatRoom, roomId: string, nickname: string, clientId?: string | null) {
   const key = resolveMemberKey(roomId, nickname, clientId)
-  const ownerByClient = !!(room.ownerClientId && clientId?.trim() && room.ownerClientId === clientId.trim())
-  return ownerByClient || room.ownerNickname === key || isManager(roomId, key)
+  return isOpenchatRoomOwner(room, key, clientId) || isManager(roomId, key)
 }
 
 function isRoomOwner(room: OpenChatRoom, roomId: string, nickname: string, clientId?: string | null) {
-  if (room.ownerClientId && clientId?.trim() && room.ownerClientId === clientId.trim()) return true
   const key = resolveMemberKey(roomId, nickname, clientId)
-  return room.ownerNickname === key
+  return isOpenchatRoomOwner(room, key, clientId)
 }
 
 function resolveDisplayName(roomId: string, clientId: string, fallback: string) {
@@ -397,8 +396,7 @@ async function handleDeleteRoom(method: string, roomId: string, request: Request
   const nickname = (body?.nickname ?? '').trim()
   if (!nickname) return badRequest('nickname is required')
   const clientId = readClientIdFromRequest(request)
-  const ok =
-    (room.ownerClientId && clientId && room.ownerClientId === clientId.trim()) || room.ownerNickname === nickname
+  const ok = isOpenchatRoomOwner(room, resolveMemberKey(roomId, nickname, clientId), clientId)
   if (!ok) return forbidden('only owner can delete room')
 
   db.rooms = db.rooms.filter((r) => r.id !== roomId)
@@ -578,8 +576,7 @@ async function handleMembership(method: string, roomId: string, url: URL, req: R
     status,
     pendingExpiresAt: status === 'pending' ? pendingExpiresAt(roomId, effectiveKey) : undefined,
     moderation: {
-      isOwner:
-        !!(room.ownerClientId && clientId && room.ownerClientId === clientId.trim()) || room.ownerNickname === effectiveKey,
+      isOwner: isOpenchatRoomOwner(room, effectiveKey, clientId),
       isManager: isManager(roomId, effectiveKey),
     },
   }

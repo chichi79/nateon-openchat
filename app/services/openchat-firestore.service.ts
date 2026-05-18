@@ -21,6 +21,7 @@ import {
   type DocumentSnapshot,
 } from 'firebase/firestore'
 
+import { isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
 import type {
   CreateRoomRequest,
   GetMembershipResponse,
@@ -462,9 +463,8 @@ async function getMembershipStatus(roomId: string, nickname: string, clientId?: 
 }
 
 async function isRoomOwnerFull(room: OpenChatRoom, roomId: string, nickname: string, clientId?: string | null): Promise<boolean> {
-  if (room.ownerClientId && (clientId ?? '').trim() && room.ownerClientId === (clientId ?? '').trim()) return true
   const key = await resolveMemberKey(roomId, nickname, clientId)
-  return room.ownerNickname === key
+  return isOpenchatRoomOwner(room, key, clientId)
 }
 
 async function isModeratorFull(
@@ -475,8 +475,7 @@ async function isModeratorFull(
 ): Promise<boolean> {
   const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
   const key = await resolveMemberKey(roomId, nickname, clientId)
-  const ownerByClient = !!(room.ownerClientId && (clientId ?? '').trim() && room.ownerClientId === (clientId ?? '').trim())
-  return ownerByClient || room.ownerNickname === key || managers.includes(key)
+  return isOpenchatRoomOwner(room, key, clientId) || managers.includes(key)
 }
 
 export async function getMembership(roomId: string, nickname: string, clientId?: string | null): Promise<GetMembershipResponse> {
