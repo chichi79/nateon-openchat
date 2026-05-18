@@ -90,7 +90,7 @@ export default function RoomsPage() {
   }
 
   return (
-    <div className='space-y-6'>
+    <div className='min-w-0 max-w-full space-y-6 overflow-x-clip'>
       {loadError ? (
         <div className='rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-100'>
           <div className='font-medium'>목록을 불러오지 못했어요</div>

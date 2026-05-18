@@ -52,6 +52,7 @@ import {
 } from '@/services/openchat.service'
 import { subscribeRoomMessages } from '@/services/openchat-firestore.service'
 import { useFocusTrap } from '@/hooks/use-focus-trap'
+import { useOpenchatKeyboardOffset } from '@/hooks/use-openchat-keyboard-offset'
 import { OpenchatToastHost } from '@/components/openchat-toast-host'
 import { RouteErrorFallback } from '@/components/route-error-fallback'
 import { OPENCHAT_MOCK_DB_STORAGE_KEY } from '@/mocks/install-mock-fetch'
@@ -296,6 +297,7 @@ export default function RoomDetailPage() {
   }, [moderatorTabs])
 
   const policyChip = policyChipFor(room.policy)
+  useOpenchatKeyboardOffset(true)
   const firestoreLive = useOpenchatFirestore()
   const mockApiEnvOn = !isViteEnvFalse(import.meta.env.VITE_ENABLE_MOCK_API)
   const showMockStorageNotice = !firestoreLive && mockApiEnvOn
@@ -787,25 +789,27 @@ export default function RoomDetailPage() {
     }
   }
 
-  async function handleKick(targetNickname: string) {
+  async function handleKick(target: { nickname: string; displayName?: string; clientId?: string }) {
     setAdminError(null)
+    const targetLabel = target.displayName?.trim() || target.nickname
     try {
-      await kickMember(room.id, senderName, targetNickname)
+      await kickMember(room.id, senderName, target.nickname)
       const d = await listRoomMembers(room.id, senderName)
       setMemberDirectory(d)
-      if (targetNickname === senderName) void revalidator.revalidate()
+      if (target.clientId === myClientId || targetLabel === senderName) void revalidator.revalidate()
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : '강퇴 실패')
     }
   }
 
-  async function handleBlock(targetNickname: string) {
+  async function handleBlock(target: { nickname: string; displayName?: string; clientId?: string }) {
     setAdminError(null)
+    const targetLabel = target.displayName?.trim() || target.nickname
     try {
-      await blockMember(room.id, senderName, targetNickname)
+      await blockMember(room.id, senderName, target.nickname)
       const d = await listRoomMembers(room.id, senderName)
       setMemberDirectory(d)
-      if (targetNickname === senderName) void revalidator.revalidate()
+      if (target.clientId === myClientId || targetLabel === senderName) void revalidator.revalidate()
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : '차단 실패')
     }
@@ -1034,9 +1038,9 @@ export default function RoomDetailPage() {
   }
 
   return (
-    <div className='space-y-4'>
+    <div className='min-w-0 max-w-full space-y-4 overflow-x-clip'>
       {showMockStorageNotice ? (
-        <div className='rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/95'>
+        <div className='break-words rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/95'>
           <span className='font-medium text-amber-50'>데모(Mock) 저장 방식</span>
           <span className='text-amber-100/85'>
             {' '}
@@ -1053,7 +1057,7 @@ export default function RoomDetailPage() {
 
       <div
         className={[
-          'sticky z-[38] -mx-4 flex items-center gap-3 border-b border-slate-200 dark:border-white/5',
+          'sticky z-[38] -mx-4 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-200 dark:border-white/5',
           'bg-white/92 px-4 py-2 shadow-[0_6px_20px_-12px_rgba(15,23,42,0.12)] backdrop-blur-xl',
           'dark:bg-[rgba(8,9,14,0.9)] dark:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.45)]',
           'top-[var(--app-header-h)]',
@@ -1349,10 +1353,10 @@ export default function RoomDetailPage() {
                         <div className='flex flex-wrap items-center gap-1'>
                           {row.status === 'member' && !isRowOwner ? (
                             <>
-                              <button type='button' className='btn-danger-ghost h-7 px-2 text-[11px]' onClick={() => void handleKick(row.nickname)}>
+                              <button type='button' className='btn-danger-ghost h-7 px-2 text-[11px]' onClick={() => void handleKick(row)}>
                                 강퇴
                               </button>
-                              <button type='button' className='btn-danger-ghost h-7 px-2 text-[11px]' onClick={() => void handleBlock(row.nickname)}>
+                              <button type='button' className='btn-danger-ghost h-7 px-2 text-[11px]' onClick={() => void handleBlock(row)}>
                                 차단
                               </button>
                             </>
@@ -1372,17 +1376,21 @@ export default function RoomDetailPage() {
                   <div className='mt-4 border-t border-slate-200 dark:border-white/10 pt-3'>
                     <div className='text-xs font-medium text-slate-600 dark:text-zinc-400'>차단 목록</div>
                     <ul className='mt-2 max-h-40 space-y-1 overflow-y-auto pr-1'>
-                      {memberDirectory.blocked.map((n) => (
+                      {memberDirectory.blocked.map((n) => {
+                        const blockedLabel =
+                          memberDirectory.members.find((m) => m.nickname === n)?.displayName?.trim() || n
+                        return (
                         <li key={n} className='flex items-center justify-between text-sm text-slate-600 dark:text-zinc-300'>
                           <span className='flex items-center gap-2'>
-                            <Avatar name={n} size={24} />
-                            {n}
+                            <Avatar name={blockedLabel} size={24} />
+                            {blockedLabel}
                           </span>
                           <button type='button' className='btn-ghost h-7 px-2 text-[11px]' onClick={() => void handleUnblock(n)}>
                             해제
                           </button>
                         </li>
-                      ))}
+                        )
+                      })}
                     </ul>
                   </div>
                 ) : null}
@@ -1396,14 +1404,14 @@ export default function RoomDetailPage() {
         <div className='rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200'>{adminError}</div>
       ) : null}
 
-      <div className='card relative overflow-hidden'>
+      <div className='card relative min-w-0 overflow-hidden'>
         {!canViewChatHistory && room.policy !== 'open_link' ? (
           <div className='border-b border-slate-200 dark:border-white/5 bg-slate-100 dark:bg-black/20 px-4 py-6 text-center text-sm text-slate-600 dark:text-zinc-400'>
             입장(초대코드 또는 방장 승인) 후에 대화 내용을 볼 수 있어요.
           </div>
         ) : null}
         <ul
-          className='relative space-y-2 overflow-x-clip px-4 pt-4 pb-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))]'
+          className='relative space-y-2 overflow-x-clip px-4 pt-4 pb-[calc(var(--openchat-keyboard-offset,0px)+var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))]'
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault()
@@ -1449,13 +1457,13 @@ export default function RoomDetailPage() {
                   ].join(' ')}
                 >
                   {!isMine ? <Avatar name={senderLabel} /> : null}
-                  <div className='inline-flex min-w-0 max-w-[min(92vw,36rem)] flex-row items-end gap-1.5'>
+                  <div className='inline-flex min-w-0 max-w-full flex-row items-end gap-1.5 sm:max-w-[36rem]'>
                     <div
                       className={[
                         'min-w-0 flex-1',
                         isMine
-                          ? 'max-w-[min(78vw,28rem)] items-end space-y-0.5 text-right'
-                          : 'max-w-[min(78vw,28rem)] items-start space-y-1 text-left',
+                          ? 'max-w-[85%] items-end space-y-0.5 text-right sm:max-w-[28rem]'
+                          : 'max-w-[85%] items-start space-y-1 text-left sm:max-w-[28rem]',
                       ].join(' ')}
                     >
                     {!isMine ? (
@@ -1468,7 +1476,7 @@ export default function RoomDetailPage() {
                         isMine ? 'flex-row-reverse justify-start' : 'justify-start',
                       ].join(' ')}
                     >
-                      <div className='min-w-0 max-w-[min(78vw,28rem)] shrink'>
+                      <div className='min-w-0 max-w-[85%] shrink sm:max-w-[28rem]'>
                     <div
                       className={[
                         'inline-block px-3.5 py-2 text-sm shadow-[0_2px_8px_-4px_rgba(0,0,0,0.4)]',
@@ -1611,7 +1619,7 @@ export default function RoomDetailPage() {
             })}
           {canViewChatHistory && typistLabel ? (
             <li
-              className='pointer-events-none sticky bottom-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))] z-10 -mx-4 flex list-none justify-start px-4 pb-1'
+              className='pointer-events-none sticky bottom-[calc(var(--openchat-keyboard-offset,0px)+var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))] z-10 -mx-4 flex list-none justify-start px-4 pb-1'
               role='status'
               aria-live='polite'
               aria-atomic='true'
@@ -1636,7 +1644,7 @@ export default function RoomDetailPage() {
       {newMsgCount > 0 && !isAtBottom ? (
         <button
           type='button'
-          className='fixed bottom-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))] left-1/2 z-40 -translate-x-1/2 rounded-full bg-[#5C87FF]/90 px-4 py-2 text-xs font-medium text-white shadow-[0_10px_30px_-10px_rgba(92,135,255,0.7)] backdrop-blur-md transition hover:bg-[#5C87FF]'
+          className='openchat-banner-above-compose fixed left-1/2 z-40 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-full bg-[#5C87FF]/90 px-4 py-2 text-xs font-medium text-white shadow-[0_10px_30px_-10px_rgba(92,135,255,0.7)] backdrop-blur-md transition hover:bg-[#5C87FF]'
           onClick={() => {
             scrollToBottom()
             setNewMsgCount(0)
@@ -1649,7 +1657,7 @@ export default function RoomDetailPage() {
       {showScrollTopFab ? (
         <button
           type='button'
-          className='focus-ring fixed bottom-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+var(--openchat-fab-h)+var(--openchat-fab-stack-gap)+env(safe-area-inset-bottom,0px))] right-[max(1.25rem,env(safe-area-inset-right))] z-[95] flex min-w-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-2.5 text-[10px] font-bold leading-tight tracking-wider text-slate-800 shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-zinc-800/95'
+          className='openchat-fab-above-theme focus-ring fixed right-[max(1.25rem,env(safe-area-inset-right))] z-[95] flex min-w-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-2.5 text-[10px] font-bold leading-tight tracking-wider text-slate-800 shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-zinc-800/95'
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           aria-label='맨 위로'
         >
@@ -1662,7 +1670,7 @@ export default function RoomDetailPage() {
 
       <div
         ref={composeBarRef}
-        className='fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 dark:border-white/5 bg-white/85 dark:bg-[rgba(8,9,15,0.78)] pb-[env(safe-area-inset-bottom,0)] backdrop-blur-xl'
+        className='openchat-compose-dock fixed inset-x-0 z-30 border-t border-slate-200 dark:border-white/5 bg-white/85 dark:bg-[rgba(8,9,15,0.78)] backdrop-blur-xl'
       >
         <div className='mx-auto max-w-5xl px-4 pt-3'>
           <fetcher.Form
@@ -1752,19 +1760,19 @@ export default function RoomDetailPage() {
               </div>
             ) : null}
 
-            <div className='flex min-h-10 items-start gap-2'>
+            <div className='flex min-h-10 min-w-0 items-end gap-1.5 sm:gap-2'>
               <button
                 type='button'
                 title={!canPost ? '입장 후 메시지를 보낼 수 있어요' : '표시 이름 변경'}
-                className='inline-flex h-10 max-w-[min(11rem,38vw)] shrink-0 items-center gap-1.5 rounded-full border border-slate-200 dark:border-white/5 bg-slate-900/[0.04] dark:bg-white/[0.03] px-2.5 text-[11px] text-slate-600 dark:text-zinc-300 transition hover:bg-slate-900/[0.05] dark:hover:bg-white/[0.06]'
+                className='inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 dark:border-white/5 bg-slate-900/[0.04] dark:bg-white/[0.03] text-slate-600 dark:text-zinc-300 transition hover:bg-slate-900/[0.05] dark:hover:bg-white/[0.06] sm:w-auto sm:max-w-[11rem] sm:justify-start sm:gap-1.5 sm:px-2.5 sm:text-[11px]'
                 onClick={() => {
                   setDisplayNameDraft(senderName)
                   setIsNicknameOpen(true)
                 }}
               >
                 <Avatar name={senderName} size={18} />
-                <span className='min-w-0 truncate font-medium text-slate-800 dark:text-zinc-100'>{senderName}</span>
-                <span className='hidden shrink-0 text-slate-500 dark:text-zinc-500 sm:inline'>· 변경</span>
+                <span className='hidden min-w-0 truncate font-medium text-slate-800 dark:text-zinc-100 sm:inline'>{senderName}</span>
+                <span className='hidden shrink-0 text-slate-500 dark:text-zinc-500 md:inline'>· 변경</span>
               </button>
 
               <label
@@ -1830,9 +1838,9 @@ export default function RoomDetailPage() {
                 </button>
               </div>
             </div>
-            <div className='text-[10px] text-slate-500 dark:text-zinc-500'>
+            <p className='hidden text-[10px] text-slate-500 dark:text-zinc-500 sm:block'>
               Enter 전송 · Shift+Enter 줄바꿈 · 드래그&드롭 가능 · 이미지 500KB · 파일 2MB · 최대 4개
-            </div>
+            </p>
           </fetcher.Form>
         </div>
       </div>

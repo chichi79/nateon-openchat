@@ -633,11 +633,19 @@ export async function kickMember(
 ) {
   const room = await getRoom(roomId)
   if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can kick')
-  if (targetNickname === room.ownerNickname) throw new Error('cannot kick owner')
-  if ((await getMembershipStatus(roomId, targetNickname)) !== 'member') throw new Error('target is not a member')
-  await deleteDoc(doc(membersCol(roomId), memberDocId(targetNickname)))
+  const targetDoc = await findMemberDocByLabel(roomId, targetNickname, 'member')
+  if (!targetDoc) throw new Error('target is not a member')
+  const data = targetDoc.data() as Record<string, unknown>
+  const targetNick = String(data.nickname ?? '').trim()
+  const targetCid =
+    typeof data.clientId === 'string' && data.clientId.trim() ? data.clientId.trim() : null
+  if (isOpenchatRoomOwner(room, targetNick, targetCid)) throw new Error('cannot kick owner')
+  await deleteDoc(targetDoc.ref)
+  const memberKey = memberKeyFromSnap(targetNickname, targetDoc)
   const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
-  await updateDoc(roomRef(roomId), { managers: managers.filter((m) => m !== targetNickname) })
+  await updateDoc(roomRef(roomId), {
+    managers: managers.filter((m) => m !== memberKey && m !== targetNick),
+  })
   return { ok: true as const }
 }
 
@@ -649,16 +657,23 @@ export async function blockMember(
 ) {
   const room = await getRoom(roomId)
   if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can block')
-  if (targetNickname === room.ownerNickname) throw new Error('cannot block owner')
+  const targetDoc = await findMemberDocByLabel(roomId, targetNickname, 'member')
+  if (!targetDoc) throw new Error('target is not a member')
+  const data = targetDoc.data() as Record<string, unknown>
+  const targetNick = String(data.nickname ?? '').trim()
+  const targetCid =
+    typeof data.clientId === 'string' && data.clientId.trim() ? data.clientId.trim() : null
+  if (isOpenchatRoomOwner(room, targetNick, targetCid)) throw new Error('cannot block owner')
+  const memberKey = memberKeyFromSnap(targetNickname, targetDoc)
   const rref = roomRef(roomId)
   const blocked = ((await getDoc(rref)).data()?.blocked as string[]) ?? []
   const managers = ((await getDoc(rref)).data()?.managers as string[]) ?? []
-  if (!blocked.includes(targetNickname)) blocked.push(targetNickname)
+  if (!blocked.includes(memberKey)) blocked.push(memberKey)
   await updateDoc(rref, {
     blocked,
-    managers: managers.filter((m) => m !== targetNickname),
+    managers: managers.filter((m) => m !== memberKey && m !== targetNick),
   })
-  await deleteDoc(doc(membersCol(roomId), memberDocId(targetNickname)))
+  await deleteDoc(targetDoc.ref)
   return { ok: true as const }
 }
 
@@ -670,9 +685,13 @@ export async function unblockMember(
 ) {
   const room = await getRoom(roomId)
   if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can unblock')
+  const memberKey = await resolveMemberKey(roomId, targetNickname, null)
   const rref = roomRef(roomId)
   const blocked = ((await getDoc(rref)).data()?.blocked as string[]) ?? []
-  await updateDoc(rref, { blocked: blocked.filter((n) => n !== targetNickname) })
+  const label = targetNickname.trim()
+  await updateDoc(rref, {
+    blocked: blocked.filter((n) => n !== label && n !== memberKey),
+  })
   return { ok: true as const }
 }
 

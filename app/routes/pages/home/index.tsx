@@ -24,7 +24,7 @@ function FeatureCard({
 
 export default function HomePage() {
   return (
-    <div className='space-y-10'>
+    <div className='min-w-0 max-w-full space-y-10 overflow-x-clip'>
       <section className='relative overflow-hidden rounded-3xl border border-slate-200 dark:border-white/[0.06] p-8 md:p-12'>
         <div className='pointer-events-none absolute inset-0 -z-10'>
           <div className='absolute -right-24 -top-32 h-80 w-80 rounded-full bg-[#5C87FF] opacity-25 blur-3xl' />

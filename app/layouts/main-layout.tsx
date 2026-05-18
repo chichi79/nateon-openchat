@@ -135,10 +135,15 @@ export default function MainLayout() {
   }, [])
 
   return (
-    <div className='min-h-dvh'>
+    <div className='min-h-dvh overflow-x-clip'>
       <NavigationProgress />
       <TopNav ref={headerRef} />
-      <main className={clsx('mx-auto max-w-5xl px-4', roomChatDetail ? 'pb-8 pt-0' : 'py-8')}>
+      <main
+        className={clsx(
+          'mx-auto min-w-0 max-w-5xl overflow-x-clip px-4',
+          roomChatDetail ? 'pb-8 pt-0' : 'py-8',
+        )}
+      >
         <Outlet />
       </main>
     </div>

@@ -20,7 +20,7 @@ export function OpenchatToastHost({ className }: OpenchatToastHostProps) {
     <div
       className={clsx(
         'pointer-events-none fixed inset-x-0 z-[45] flex flex-col items-center gap-2 px-4',
-        'bottom-[calc(var(--openchat-compose-h,5.25rem)+var(--openchat-compose-gap,0.5rem)+0.75rem+env(safe-area-inset-bottom,0px))]',
+        'bottom-[calc(var(--openchat-keyboard-offset,0px)+var(--openchat-compose-h,5.25rem)+var(--openchat-compose-gap,0.5rem)+0.75rem+env(safe-area-inset-bottom,0px))]',
         className,
       )}
       aria-live='polite'
@@ -29,7 +29,7 @@ export function OpenchatToastHost({ className }: OpenchatToastHostProps) {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className='openchat-toast-enter pointer-events-auto flex max-w-[min(24rem,calc(100vw-2rem))] items-center gap-2 rounded-full border border-slate-200/80 bg-white/95 px-4 py-2 text-sm font-medium text-slate-800 shadow-lg backdrop-blur-sm dark:border-white/10 dark:bg-[#161a25]/95 dark:text-zinc-100'
+          className='openchat-toast-enter pointer-events-auto flex w-[min(24rem,calc(100%-2rem))] max-w-full items-center gap-2 rounded-full border border-slate-200/80 bg-white/95 px-4 py-2 text-sm font-medium text-slate-800 shadow-lg backdrop-blur-sm dark:border-white/10 dark:bg-[#161a25]/95 dark:text-zinc-100'
         >
           <span className='min-w-0 flex-1 text-center'>{t.message}</span>
           <button

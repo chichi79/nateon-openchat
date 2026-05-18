@@ -197,14 +197,32 @@ function pendingDisplayNamesForRoom(roomId: string) {
 }
 
 function resolvePendingMemberKey(roomId: string, displayOrKey: string) {
+  return resolveMemberKeyByLabel(roomId, displayOrKey, 'pending')
+}
+
+function clientIdForMemberKey(roomId: string, memberKey: string) {
+  const entry = Object.entries(db.clientIdToMemberKeyByRoomId[roomId] ?? {}).find(([, k]) => k === memberKey)
+  return entry?.[0] ?? null
+}
+
+function resolveMemberKeyByLabel(roomId: string, displayOrKey: string, status?: MemberRecordStatus) {
   const trimmed = displayOrKey.trim()
   const members = db.membersByRoomId[roomId] ?? {}
   for (const [key, st] of Object.entries(members)) {
-    if (st !== 'pending') continue
+    if (status && st !== status) continue
     if (key === trimmed) return key
     if (displayNameForMemberKey(roomId, key) === trimmed) return key
   }
   return null
+}
+
+function resolveBlockedEntryKey(roomId: string, label: string) {
+  const trimmed = label.trim()
+  const blocked = db.blockedByRoomId[roomId] ?? []
+  if (blocked.includes(trimmed)) return trimmed
+  const memberKey = resolveMemberKeyByLabel(roomId, trimmed)
+  if (memberKey && blocked.includes(memberKey)) return memberKey
+  return trimmed
 }
 
 function isBlocked(roomId: string, nickname: string, clientId?: string | null) {
@@ -789,11 +807,12 @@ async function handleKick(method: string, roomId: string, request: Request) {
   if (!targetNickname) return badRequest('targetNickname is required')
   const kickCid = readClientIdFromRequest(request)
   if (!isModerator(room, roomId, actorNickname, kickCid)) return forbidden('Only moderators can kick')
-  if (resolveMemberKey(roomId, targetNickname, null) === room.ownerNickname) return badRequest('cannot kick owner')
-  if (getMembershipStatus(roomId, targetNickname) !== 'member') return badRequest('target is not a member')
+  const targetKey = resolveMemberKeyByLabel(roomId, targetNickname, 'member')
+  if (!targetKey) return badRequest('target is not a member')
+  if (isOpenchatRoomOwner(room, targetKey, clientIdForMemberKey(roomId, targetKey))) return badRequest('cannot kick owner')
 
-  setMembershipStatus(roomId, targetNickname, 'none')
-  db.managersByRoomId[roomId] = (db.managersByRoomId[roomId] ?? []).filter((m) => m !== targetNickname)
+  setMembershipStatus(roomId, targetKey, 'none')
+  db.managersByRoomId[roomId] = (db.managersByRoomId[roomId] ?? []).filter((m) => m !== targetKey)
   persist()
   return json({ ok: true as const })
 }
@@ -816,13 +835,15 @@ async function handleBlock(method: string, roomId: string, request: Request) {
   if (!targetNickname) return badRequest('targetNickname is required')
   const blockCid = readClientIdFromRequest(request)
   if (!isModerator(room, roomId, actorNickname, blockCid)) return forbidden('Only moderators can block')
-  if (resolveMemberKey(roomId, targetNickname, null) === room.ownerNickname) return badRequest('cannot block owner')
+  const targetKey = resolveMemberKeyByLabel(roomId, targetNickname, 'member')
+  if (!targetKey) return badRequest('target is not a member')
+  if (isOpenchatRoomOwner(room, targetKey, clientIdForMemberKey(roomId, targetKey))) return badRequest('cannot block owner')
 
   const blocked = new Set(db.blockedByRoomId[roomId] ?? [])
-  blocked.add(targetNickname)
+  blocked.add(targetKey)
   db.blockedByRoomId[roomId] = [...blocked]
-  setMembershipStatus(roomId, targetNickname, 'none')
-  db.managersByRoomId[roomId] = (db.managersByRoomId[roomId] ?? []).filter((m) => m !== targetNickname)
+  setMembershipStatus(roomId, targetKey, 'none')
+  db.managersByRoomId[roomId] = (db.managersByRoomId[roomId] ?? []).filter((m) => m !== targetKey)
   persist()
   return json({ ok: true as const })
 }
@@ -846,7 +867,8 @@ async function handleUnblock(method: string, roomId: string, request: Request) {
   const unblockCid = readClientIdFromRequest(request)
   if (!isModerator(room, roomId, actorNickname, unblockCid)) return forbidden('Only moderators can unblock')
 
-  db.blockedByRoomId[roomId] = (db.blockedByRoomId[roomId] ?? []).filter((n) => n !== targetNickname)
+  const blockedKey = resolveBlockedEntryKey(roomId, targetNickname)
+  db.blockedByRoomId[roomId] = (db.blockedByRoomId[roomId] ?? []).filter((n) => n !== blockedKey)
   persist()
   return json({ ok: true as const })
 }
