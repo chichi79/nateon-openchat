@@ -9,6 +9,7 @@ import type {
   OpenChatMessage,
   OpenChatRoom,
   RoomInviteInfo,
+  RoomMemberRow,
 } from '@/features/openchat/openchat.types'
 
 import { isViteEnvFalse } from '@/lib/vite-env-flags'
@@ -16,9 +17,19 @@ import { openchatDisplaySenderName } from '@/lib/openchat-display-name'
 import { resolveMessageSenderLabel } from '@/lib/openchat-display-label'
 import { ensureOpenchatClientId, isOpenchatMessageMine } from '@/lib/openchat-identity'
 import { addSeenJoinClientIds, readSeenJoinClientIds } from '@/lib/openchat-join-toast-seen'
+import { memberAdminLabel, memberMatchesManagerList } from '@/lib/openchat-member-managers'
 import { isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
 import { clearOpenchatToasts, showOpenchatToast } from '@/lib/openchat-toast'
-import { countReadersForMessage, textMentionsNickname } from '@/lib/openchat-read-receipt'
+import {
+  collectMentionAliases,
+  filterMentionCandidates,
+  getActiveMentionQuery,
+  insertMentionAt,
+  isMentionToken,
+  splitMentionParts,
+  textMentionsAny,
+} from '@/lib/openchat-mention'
+import { countReadersForMessage } from '@/lib/openchat-read-receipt'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
 import {
   addRoomManager,
@@ -148,9 +159,8 @@ function shortDeadline(iso: string) {
 }
 
 function renderTextWithMentions(text: string) {
-  const parts = text.split(/(@[A-Za-z0-9가-힣_]+)/g)
-  return parts.map((p, i) => {
-    if (p.startsWith('@') && p.length > 1) {
+  return splitMentionParts(text).map((p, i) => {
+    if (isMentionToken(p)) {
       return (
         <span key={i} className='font-medium text-[#BFD0FF]'>
           {p}
@@ -257,6 +267,8 @@ export default function RoomDetailPage() {
   const [joinPresenceEpoch, setJoinPresenceEpoch] = useState(0)
   const mentionNotifiedIdsRef = useRef<Set<string>>(new Set())
   const lastMentionRoomIdRef = useRef<string | null>(null)
+  const [mentionPickerIndex, setMentionPickerIndex] = useState(0)
+  const [composeCursor, setComposeCursor] = useState(0)
   const prevMembershipStatusRef = useRef<MembershipStatus>(initialMe.status)
   const joinRequestsSyncedRef = useRef(false)
   const knownPendingNicknamesRef = useRef<Set<string>>(new Set())
@@ -289,6 +301,13 @@ export default function RoomDetailPage() {
     }
     return tabs
   }, [isModerator, room.policy, inviteMeta, memberDirectory, pendingNicknames.length])
+
+  const ownerAssignableMembers = useMemo(() => {
+    if (!memberDirectory) return [] as RoomMemberRow[]
+    return memberDirectory.members.filter(
+      (m) => m.status === 'member' && !isOpenchatRoomOwner(room, m.nickname, m.clientId),
+    )
+  }, [memberDirectory, room])
 
   useEffect(() => {
     const ids = moderatorTabs.map((t) => t.id)
@@ -450,6 +469,27 @@ export default function RoomDetailPage() {
     [displayNamesByClientId],
   )
 
+  const myMentionAliases = useMemo(
+    () =>
+      collectMentionAliases({
+        displayName: senderName,
+        defaultNick,
+        clientId: myClientId,
+        displayNamesByClientId,
+      }),
+    [senderName, defaultNick, myClientId, displayNamesByClientId],
+  )
+
+  const mentionCandidates = useMemo(() => {
+    const names = new Set<string>()
+    for (const [cid, dn] of Object.entries(displayNamesByClientId)) {
+      if (cid === myClientId) continue
+      const n = dn.trim()
+      if (n) names.add(n)
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, 'ko'))
+  }, [displayNamesByClientId, myClientId])
+
   const sortedMessages = useMemo(() => {
     return [...optimisticMessages].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
   }, [optimisticMessages])
@@ -507,6 +547,22 @@ export default function RoomDetailPage() {
     return membership === 'member'
   }, [membership, room.policy])
 
+  const activeMention = useMemo(
+    () => getActiveMentionQuery(composeText, composeCursor),
+    [composeText, composeCursor],
+  )
+
+  const mentionPickerOptions = useMemo(() => {
+    if (!activeMention || !canPost) return []
+    return filterMentionCandidates(mentionCandidates, activeMention.query)
+  }, [activeMention, mentionCandidates, canPost])
+
+  const showMentionPicker = mentionPickerOptions.length > 0
+
+  useEffect(() => {
+    setMentionPickerIndex(0)
+  }, [activeMention?.query, mentionPickerOptions.length])
+
   const flushTypingOff = useCallback(() => {
     if (typingPingTimerRef.current) window.clearTimeout(typingPingTimerRef.current)
     if (typingClearTimerRef.current) window.clearTimeout(typingClearTimerRef.current)
@@ -546,6 +602,9 @@ export default function RoomDetailPage() {
       flushTypingOff()
       setReplyTo(null)
       setAttachments([])
+      requestAnimationFrame(() => {
+        composeTextareaRef.current?.focus({ preventScroll: true })
+      })
     }
   }, [fetcher.data?.message, fetcher.state, flushTypingOff])
 
@@ -624,12 +683,18 @@ export default function RoomDetailPage() {
     for (const m of sortedMessages) {
       if (mentionNotifiedIdsRef.current.has(m.id)) continue
       mentionNotifiedIdsRef.current.add(m.id)
-      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') continue
-      if (typeof document !== 'undefined' && !document.hidden) continue
       if (m.deletedAt || isOpenchatMessageMine(m, senderName, myClientId)) continue
-      if (!textMentionsNickname(m.text, senderName)) continue
+      if (!textMentionsAny(m.text, myMentionAliases)) continue
+      const from = labelForMessage(m)
+      const preview = (m.text || '').slice(0, 80)
+      const hidden = typeof document !== 'undefined' && document.hidden
+      if (!hidden) {
+        showOpenchatToast(`${from}님이 회원님을 멘션했습니다: ${preview}`)
+        continue
+      }
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') continue
       try {
-        new Notification(`${labelForMessage(m)}님이 회원님을 멘션`, {
+        new Notification(`${from}님이 회원님을 멘션`, {
           body: (m.text || '').slice(0, 140),
           tag: `openchat-mention-${room.id}-${m.id}`,
         })
@@ -637,7 +702,24 @@ export default function RoomDetailPage() {
         /* ignore */
       }
     }
-  }, [sortedMessages, senderName, myClientId, room.id, labelForMessage])
+  }, [sortedMessages, senderName, myClientId, room.id, labelForMessage, myMentionAliases])
+
+  const applyMentionPick = useCallback(
+    (name: string) => {
+      const el = composeTextareaRef.current
+      const pos = el?.selectionStart ?? composeCursor
+      const { nextText, nextCursor } = insertMentionAt(composeText, pos, name)
+      setComposeText(nextText)
+      setComposeCursor(nextCursor)
+      requestAnimationFrame(() => {
+        const ta = composeTextareaRef.current
+        if (!ta) return
+        ta.focus()
+        ta.setSelectionRange(nextCursor, nextCursor)
+      })
+    },
+    [composeText, composeCursor],
+  )
 
   async function refreshMe() {
     try {
@@ -826,16 +908,27 @@ export default function RoomDetailPage() {
     }
   }
 
-  async function handleDelegate() {
-    const to = delegateTo.trim()
+  async function handleDelegate(targetLabel?: string) {
+    const to = (targetLabel ?? delegateTo).trim()
     if (!to) return
     setAdminError(null)
     try {
       await delegateOwner(room.id, senderName, to)
-      window.location.reload()
+      setDelegateTo('')
+      showOpenchatToast('방장을 위임했습니다.')
+      void revalidator.revalidate()
+      await refreshMe()
+      const d = await listRoomMembers(room.id, senderName)
+      setMemberDirectory(d)
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : '위임 실패')
     }
+  }
+
+  async function handleDelegateToRow(row: RoomMemberRow) {
+    const label = memberAdminLabel(row)
+    if (!window.confirm(`「${label}」님에게 방장을 위임할까요?`)) return
+    await handleDelegate(label)
   }
 
   async function handleDeleteRoom() {
@@ -854,13 +947,14 @@ export default function RoomDetailPage() {
     }
   }
 
-  async function handleAddManager() {
-    const t = managerTarget.trim()
+  async function handleAddManager(targetLabel?: string) {
+    const t = (targetLabel ?? managerTarget).trim()
     if (!t) return
     setAdminError(null)
     try {
       await addRoomManager(room.id, senderName, t)
       setManagerTarget('')
+      showOpenchatToast('매니저로 지정했습니다.')
       const d = await listRoomMembers(room.id, senderName)
       setMemberDirectory(d)
       await refreshMe()
@@ -869,10 +963,11 @@ export default function RoomDetailPage() {
     }
   }
 
-  async function handleRemoveManager(targetNickname: string) {
+  async function handleRemoveManager(row: RoomMemberRow) {
     setAdminError(null)
     try {
-      await removeRoomManager(room.id, senderName, targetNickname)
+      await removeRoomManager(room.id, senderName, memberAdminLabel(row))
+      showOpenchatToast('매니저를 해제했습니다.')
       const d = await listRoomMembers(room.id, senderName)
       setMemberDirectory(d)
       await refreshMe()
@@ -916,6 +1011,13 @@ export default function RoomDetailPage() {
     })
   }, [])
 
+  const submitCompose = useCallback(() => {
+    if (!canPost || fetcher.state !== 'idle') return
+    scrollAfterOwnSendRef.current = true
+    formRef.current?.requestSubmit()
+    composeTextareaRef.current?.focus({ preventScroll: true })
+  }, [canPost, fetcher.state])
+
   useLayoutEffect(() => {
     const el = composeBarRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
@@ -923,11 +1025,6 @@ export default function RoomDetailPage() {
     const sync = () => {
       const h = el.getBoundingClientRect().height
       document.documentElement.style.setProperty('--openchat-compose-h', `${Math.round(h * 1000) / 1000}px`)
-      if (isAtBottomRef.current) {
-        requestAnimationFrame(() => {
-          window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' })
-        })
-      }
     }
 
     sync()
@@ -979,7 +1076,10 @@ export default function RoomDetailPage() {
     scrollAfterOwnSendRef.current = false
     suppressNextNewMsgBadgeRef.current = true
     scrollToBottom('auto')
-    requestAnimationFrame(() => scrollToBottom('auto'))
+    requestAnimationFrame(() => {
+      scrollToBottom('auto')
+      composeTextareaRef.current?.focus({ preventScroll: true })
+    })
   }, [fetcher.state, fetcher.data?.message?.id, scrollToBottom])
 
   const lastMsgId = sortedMessages.at(-1)?.id
@@ -1057,9 +1157,10 @@ export default function RoomDetailPage() {
 
       <div
         className={[
-          'sticky z-[38] -mx-4 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-200 dark:border-white/5',
-          'bg-white/92 px-4 py-2 shadow-[0_6px_20px_-12px_rgba(15,23,42,0.12)] backdrop-blur-xl',
-          'dark:bg-[rgba(8,9,14,0.9)] dark:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.45)]',
+          'openchat-room-sticky-head sticky z-[38] -mx-4 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-200 dark:border-white/5',
+          'bg-white px-[25px] py-2 shadow-[0_6px_20px_-12px_rgba(15,23,42,0.12)] backdrop-blur-xl',
+          'max-md:bg-white max-md:dark:bg-[#08090e]',
+          'dark:bg-[rgba(8,9,14,0.96)] dark:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.45)]',
           'top-[var(--app-header-h)]',
         ].join(' ')}
       >
@@ -1306,25 +1407,57 @@ export default function RoomDetailPage() {
                 <p className='text-xs text-slate-500 dark:text-zinc-500'>강퇴·차단, 방장 위임, 매니저 지정(방장만)</p>
                 {isOwner ? (
                   <div className='mt-3 grid gap-2 md:grid-cols-2'>
-                    <div className='flex gap-2'>
-                      <input
+                    <div className='flex min-w-0 gap-2'>
+                      <select
                         value={delegateTo}
                         onChange={(e) => setDelegateTo(e.target.value)}
-                        placeholder='방장 위임할 닉네임'
-                        className='input'
-                      />
-                      <button type='button' className='btn-ghost shrink-0' onClick={() => void handleDelegate()}>
+                        className='input min-w-0 flex-1'
+                        aria-label='방장 위임 대상'
+                      >
+                        <option value=''>방장 위임할 멤버</option>
+                        {ownerAssignableMembers.map((m) => {
+                          const label = memberAdminLabel(m)
+                          return (
+                            <option key={m.clientId ?? m.nickname} value={label}>
+                              {label}
+                            </option>
+                          )
+                        })}
+                      </select>
+                      <button
+                        type='button'
+                        className='btn-ghost shrink-0'
+                        disabled={!delegateTo.trim()}
+                        onClick={() => void handleDelegate()}
+                      >
                         위임
                       </button>
                     </div>
-                    <div className='flex gap-2'>
-                      <input
+                    <div className='flex min-w-0 gap-2'>
+                      <select
                         value={managerTarget}
                         onChange={(e) => setManagerTarget(e.target.value)}
-                        placeholder='매니저로 지정할 닉네임'
-                        className='input'
-                      />
-                      <button type='button' className='btn-ghost shrink-0' onClick={() => void handleAddManager()}>
+                        className='input min-w-0 flex-1'
+                        aria-label='매니저 지정 대상'
+                      >
+                        <option value=''>매니저로 지정할 멤버</option>
+                        {ownerAssignableMembers
+                          .filter((m) => !memberMatchesManagerList(memberDirectory.managers, m))
+                          .map((m) => {
+                            const label = memberAdminLabel(m)
+                            return (
+                              <option key={m.clientId ?? m.nickname} value={label}>
+                                {label}
+                              </option>
+                            )
+                          })}
+                      </select>
+                      <button
+                        type='button'
+                        className='btn-ghost shrink-0'
+                        disabled={!managerTarget.trim()}
+                        onClick={() => void handleAddManager()}
+                      >
                         추가
                       </button>
                     </div>
@@ -1335,7 +1468,7 @@ export default function RoomDetailPage() {
                   {memberDirectory.members.map((row) => {
                     const rowLabel = row.displayName?.trim() || row.nickname
                     const isRowOwner = isOpenchatRoomOwner(room, row.nickname, row.clientId)
-                    const isRowManager = memberDirectory.managers.includes(row.nickname)
+                    const isRowManager = memberMatchesManagerList(memberDirectory.managers, row)
                     return (
                       <li
                         key={row.clientId ?? row.nickname}
@@ -1361,8 +1494,26 @@ export default function RoomDetailPage() {
                               </button>
                             </>
                           ) : null}
+                          {isOwner && row.status === 'member' && !isRowOwner && !isRowManager ? (
+                            <>
+                              <button
+                                type='button'
+                                className='btn-ghost h-7 px-2 text-[11px]'
+                                onClick={() => void handleDelegateToRow(row)}
+                              >
+                                방장 위임
+                              </button>
+                              <button
+                                type='button'
+                                className='btn-ghost h-7 px-2 text-[11px]'
+                                onClick={() => void handleAddManager(memberAdminLabel(row))}
+                              >
+                                매니저
+                              </button>
+                            </>
+                          ) : null}
                           {isOwner && isRowManager && !isRowOwner ? (
-                            <button type='button' className='btn-ghost h-7 px-2 text-[11px]' onClick={() => void handleRemoveManager(row.nickname)}>
+                            <button type='button' className='btn-ghost h-7 px-2 text-[11px]' onClick={() => void handleRemoveManager(row)}>
                               매니저 해제
                             </button>
                           ) : null}
@@ -1411,7 +1562,7 @@ export default function RoomDetailPage() {
           </div>
         ) : null}
         <ul
-          className='relative space-y-2 overflow-x-clip px-4 pt-4 pb-[calc(var(--openchat-keyboard-offset,0px)+var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))]'
+          className='relative space-y-2 overflow-x-clip px-4 pt-4 pb-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))]'
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault()
@@ -1460,10 +1611,9 @@ export default function RoomDetailPage() {
                   <div className='inline-flex min-w-0 max-w-full flex-row items-end gap-1.5 sm:max-w-[36rem]'>
                     <div
                       className={[
-                        'min-w-0 flex-1',
                         isMine
-                          ? 'max-w-[85%] items-end space-y-0.5 text-right sm:max-w-[28rem]'
-                          : 'max-w-[85%] items-start space-y-1 text-left sm:max-w-[28rem]',
+                          ? 'flex w-max max-w-[85%] flex-col items-end space-y-0.5 sm:max-w-[28rem]'
+                          : 'min-w-0 flex-1 max-w-[85%] items-start space-y-1 text-left sm:max-w-[28rem]',
                       ].join(' ')}
                     >
                     {!isMine ? (
@@ -1472,11 +1622,16 @@ export default function RoomDetailPage() {
 
                     <div
                       className={[
-                        'flex w-full min-w-0 flex-row items-end gap-2',
-                        isMine ? 'flex-row-reverse justify-start' : 'justify-start',
+                        'flex min-w-0 flex-row items-end gap-2',
+                        isMine ? 'w-max max-w-full flex-row-reverse' : 'w-full justify-start',
                       ].join(' ')}
                     >
-                      <div className='min-w-0 max-w-[85%] shrink sm:max-w-[28rem]'>
+                      <div
+                        className={[
+                          'max-w-[85%] sm:max-w-[28rem]',
+                          isMine ? 'w-max shrink-0' : 'min-w-0 shrink',
+                        ].join(' ')}
+                      >
                     <div
                       className={[
                         'inline-block px-3.5 py-2 text-sm shadow-[0_2px_8px_-4px_rgba(0,0,0,0.4)]',
@@ -1502,10 +1657,10 @@ export default function RoomDetailPage() {
                                 type='button'
                                 title='원문 메시지로 이동'
                                 className={[
-                                  'w-full rounded-lg border-l-2 px-2 py-1.5 text-left text-xs transition hover:brightness-110',
+                                  'w-full rounded-lg border-l-2 px-2 py-1.5 text-xs transition hover:brightness-110',
                                   isMine
-                                    ? 'border-white/55 bg-white/12 text-white/95'
-                                    : 'border-slate-400 dark:border-white/40 bg-slate-100 dark:bg-black/15 text-slate-700/90 dark:text-zinc-200/90',
+                                    ? 'border-white/55 bg-white/12 text-right text-white/95'
+                                    : 'border-slate-400 dark:border-white/40 bg-slate-100 text-left dark:bg-black/15 text-slate-700/90 dark:text-zinc-200/90',
                                 ].join(' ')}
                                 onClick={() => scrollToQuotedMessage(replied.id)}
                               >
@@ -1519,8 +1674,10 @@ export default function RoomDetailPage() {
                             ) : replied?.deletedAt ? (
                               <div
                                 className={[
-                                  'rounded-lg border-l-2 px-2 py-1 text-left text-xs italic',
-                                  isMine ? 'border-white/35 bg-white/8 text-white/75' : 'border-slate-400/60 bg-slate-100/80 dark:bg-black/15 text-slate-600 dark:text-zinc-400',
+                                  'rounded-lg border-l-2 px-2 py-1 text-xs italic',
+                                  isMine
+                                    ? 'border-white/35 bg-white/8 text-right text-white/75'
+                                    : 'border-slate-400/60 bg-slate-100/80 text-left dark:bg-black/15 text-slate-600 dark:text-zinc-400',
                                 ].join(' ')}
                               >
                                 삭제된 메시지에 대한 답장
@@ -1528,8 +1685,10 @@ export default function RoomDetailPage() {
                             ) : (
                               <div
                                 className={[
-                                  'rounded-lg border-l-2 px-2 py-1 text-left text-xs',
-                                  isMine ? 'border-white/35 bg-white/8 text-white/75' : 'border-slate-300 dark:border-white/20 bg-slate-50 dark:bg-black/20 text-slate-600 dark:text-zinc-400',
+                                  'rounded-lg border-l-2 px-2 py-1 text-xs',
+                                  isMine
+                                    ? 'border-white/35 bg-white/8 text-right text-white/75'
+                                    : 'border-slate-300 bg-slate-50 text-left dark:border-white/20 dark:bg-black/20 text-slate-600 dark:text-zinc-400',
                                 ].join(' ')}
                               >
                                 원문을 찾을 수 없어요
@@ -1538,7 +1697,14 @@ export default function RoomDetailPage() {
                           ) : null}
 
                           {m.text ? (
-                            <div className='whitespace-pre-wrap text-left wrap-break-word'>{renderTextWithMentions(m.text)}</div>
+                            <div
+                              className={[
+                                'whitespace-pre-wrap wrap-break-word',
+                                isMine ? 'text-right' : 'text-left',
+                              ].join(' ')}
+                            >
+                              {renderTextWithMentions(m.text)}
+                            </div>
                           ) : null}
 
                           {m.attachments?.length ? (
@@ -1619,7 +1785,7 @@ export default function RoomDetailPage() {
             })}
           {canViewChatHistory && typistLabel ? (
             <li
-              className='pointer-events-none sticky bottom-[calc(var(--openchat-keyboard-offset,0px)+var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))] z-10 -mx-4 flex list-none justify-start px-4 pb-1'
+              className='pointer-events-none sticky bottom-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))] z-10 -mx-4 flex list-none justify-start px-4 pb-1'
               role='status'
               aria-live='polite'
               aria-atomic='true'
@@ -1657,20 +1823,20 @@ export default function RoomDetailPage() {
       {showScrollTopFab ? (
         <button
           type='button'
-          className='openchat-fab-above-theme focus-ring fixed right-[max(1.25rem,env(safe-area-inset-right))] z-[95] flex min-w-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-2.5 text-[10px] font-bold leading-tight tracking-wider text-slate-800 shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-zinc-800/95'
+          className='openchat-fab-above-top focus-ring fixed right-[max(1.25rem,env(safe-area-inset-right))] z-[95] flex h-10 min-w-10 flex-col items-center justify-center gap-0 rounded-lg border border-slate-200/90 bg-white/95 px-1.5 py-1.5 text-[9px] font-bold leading-none tracking-wide text-slate-800 shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-zinc-800/95'
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           aria-label='맨 위로'
         >
-          <svg viewBox='0 0 24 24' className='h-4 w-4 shrink-0' fill='none' stroke='currentColor' strokeWidth='2.2' aria-hidden>
+          <svg viewBox='0 0 24 24' className='h-3.5 w-3.5 shrink-0' fill='none' stroke='currentColor' strokeWidth='2.2' aria-hidden>
             <path d='M12 19V5M5 12l7-7 7 7' strokeLinecap='round' strokeLinejoin='round' />
           </svg>
-          <span className='select-none'>TOP</span>
+          <span className='mt-0.5 select-none'>TOP</span>
         </button>
       ) : null}
 
       <div
         ref={composeBarRef}
-        className='openchat-compose-dock fixed inset-x-0 z-30 border-t border-slate-200 dark:border-white/5 bg-white/85 dark:bg-[rgba(8,9,15,0.78)] backdrop-blur-xl'
+        className='openchat-compose-dock fixed inset-x-0 z-30 border-t border-slate-200 dark:border-white/5 bg-white/85 dark:bg-[rgba(8,9,15,0.78)] backdrop-blur-xl max-md:bg-white max-md:dark:bg-[#08090f]'
       >
         <div className='mx-auto max-w-5xl px-4 pt-3'>
           <fetcher.Form
@@ -1789,6 +1955,34 @@ export default function RoomDetailPage() {
               </label>
 
               <div className='relative flex min-w-0 flex-1 items-end gap-2'>
+                {showMentionPicker ? (
+                  <ul
+                    className='absolute bottom-full left-0 z-20 mb-1 max-h-40 w-full min-w-[12rem] overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-[#161a25]'
+                    role='listbox'
+                    aria-label='멘션 대상'
+                  >
+                    {mentionPickerOptions.map((name, i) => (
+                      <li key={name} role='option' aria-selected={i === mentionPickerIndex}>
+                        <button
+                          type='button'
+                          className={[
+                            'flex w-full items-center gap-2 px-3 py-2 text-left text-sm',
+                            i === mentionPickerIndex
+                              ? 'bg-[#5C87FF]/15 text-slate-900 dark:text-white'
+                              : 'text-slate-700 hover:bg-slate-100 dark:text-zinc-200 dark:hover:bg-white/5',
+                          ].join(' ')}
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            applyMentionPick(name)
+                          }}
+                        >
+                          <span className='font-medium text-[#5C87FF]'>@</span>
+                          {name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 <textarea
                   ref={composeTextareaRef}
                   name='text'
@@ -1797,13 +1991,45 @@ export default function RoomDetailPage() {
                   onChange={(e) => {
                     const v = e.target.value
                     setComposeText(v)
+                    setComposeCursor(e.target.selectionStart ?? v.length)
                     if (!v.trim()) flushTypingOff()
                     else bumpTyping()
                   }}
+                  onClick={(e) => setComposeCursor(e.currentTarget.selectionStart ?? composeText.length)}
+                  onKeyUp={(e) => setComposeCursor(e.currentTarget.selectionStart ?? composeText.length)}
                   onKeyDown={(e) => {
+                    if (showMentionPicker) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault()
+                        setMentionPickerIndex((i) => (i + 1) % mentionPickerOptions.length)
+                        return
+                      }
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault()
+                        setMentionPickerIndex(
+                          (i) => (i - 1 + mentionPickerOptions.length) % mentionPickerOptions.length,
+                        )
+                        return
+                      }
+                      if (e.key === 'Enter' || e.key === 'Tab') {
+                        e.preventDefault()
+                        const pick = mentionPickerOptions[mentionPickerIndex]
+                        if (pick) applyMentionPick(pick)
+                        return
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        const pos = e.currentTarget.selectionStart ?? composeText.length
+                        const active = getActiveMentionQuery(composeText, pos)
+                        if (active) {
+                          setComposeText(composeText.slice(0, active.start) + composeText.slice(pos))
+                        }
+                        return
+                      }
+                    }
                     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                       e.preventDefault()
-                      if (canPost && fetcher.state === 'idle') formRef.current?.requestSubmit()
+                      submitCompose()
                     }
                   }}
                   placeholder={
@@ -1811,19 +2037,22 @@ export default function RoomDetailPage() {
                       ? '입장 후 메시지를 보낼 수 있어요'
                       : replyTo
                         ? `${labelForMessage(replyTo)}님에게 답장…`
-                        : '메시지를 입력해 보세요…'
+                        : '메시지를 입력해 보세요… (@이름)'
                   }
                   disabled={!canPost}
                   className='input min-h-10 max-h-36 w-full min-w-0 flex-1 py-2 pr-12 leading-snug'
                   autoComplete='off'
-                  title={!canPost ? '입장 후 메시지를 보낼 수 있어요' : 'Enter 전송 · Shift+Enter 줄바꿈'}
+                  enterKeyHint='send'
+                  title={!canPost ? '입장 후 메시지를 보낼 수 있어요' : 'Enter 전송 · Shift+Enter 줄바꿈 · @로 멘션'}
                 />
 
                 <button
-                  type='submit'
+                  type='button'
                   disabled={fetcher.state !== 'idle' || !canPost}
                   className='btn-primary h-10 shrink-0 px-3 sm:px-4'
                   aria-label='전송'
+                  onPointerDown={(e) => e.preventDefault()}
+                  onClick={submitCompose}
                 >
                   {fetcher.state === 'idle' ? (
                     <>

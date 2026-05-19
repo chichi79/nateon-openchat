@@ -32,9 +32,13 @@
   /* 채팅 입력창 실측 높이 — room-detail에서 ResizeObserver로 덮어씀 */
   --openchat-compose-h: 5.25rem;
   --openchat-compose-gap: 0.5rem;
-  /* room-detail 우측 FAB 스택(아래→위: 테마 h-12, TOP) */
-  --openchat-fab-h: 3rem;
+  /* room-detail 우측 FAB 스택(아래→위: 입력창 · 테마 · TOP, 각 2.5rem) */
+  --openchat-fab-h: 2.5rem;
+  --openchat-top-fab-h: 2.5rem;
   --openchat-fab-stack-gap: 0.5rem;
+  --openchat-fab-pair-gap: 0.25rem;
+  --openchat-fab-offset-down: 50px;
+  --openchat-top-fab-offset-down: 10px;
   --openchat-keyboard-offset: 0px;
 }
 
@@ -305,16 +309,21 @@ textarea.input {
 .openchat-compose-dock {
   bottom: calc(var(--openchat-keyboard-offset, 0px) + env(safe-area-inset-bottom, 0px));
 }
-.openchat-fab-above-compose {
-  bottom: calc(
-    var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-compose-gap, 0.5rem) +
-      env(safe-area-inset-bottom, 0px)
-  );
-}
+/* 테마 FAB: 입력창(전송 버튼) 위 한 칸 */
 .openchat-fab-above-theme {
   bottom: calc(
     var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-compose-gap, 0.5rem) +
-      var(--openchat-fab-h, 3rem) + var(--openchat-fab-stack-gap, 0.5rem) + env(safe-area-inset-bottom, 0px)
+      var(--openchat-fab-h, 3rem) + var(--openchat-fab-stack-gap, 0.5rem) + env(safe-area-inset-bottom, 0px) -
+      var(--openchat-fab-offset-down, 0px)
+  );
+}
+/* TOP FAB: 테마 버튼 위 */
+.openchat-fab-above-top {
+  bottom: calc(
+    var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-compose-gap, 0.5rem) +
+      var(--openchat-fab-h, 3rem) + var(--openchat-fab-stack-gap, 0.5rem) + var(--openchat-top-fab-h, 3rem) +
+      var(--openchat-fab-pair-gap, 0.25rem) + env(safe-area-inset-bottom, 0px) - var(--openchat-fab-offset-down, 0px) -
+      var(--openchat-top-fab-offset-down, 0px)
   );
 }
 .openchat-banner-above-compose {
@@ -322,6 +331,30 @@ textarea.input {
     var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-compose-gap, 0.5rem) +
       env(safe-area-inset-bottom, 0px)
   );
+}
+
+/* iOS: sticky/fixed + backdrop-blur 스크롤 시 떨림 완화 */
+.openchat-room-sticky-head,
+.openchat-compose-dock {
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+@media (max-width: 767px) {
+  .openchat-room-sticky-head,
+  .openchat-compose-dock {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .openchat-compose-dock {
+    background: rgb(255 255 255);
+  }
+
+  html[data-theme='dark'] .openchat-compose-dock {
+    background: rgb(8 9 15);
+  }
 }
 
 .chip {

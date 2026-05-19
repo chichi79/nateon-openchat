@@ -703,17 +703,25 @@ export async function delegateOwner(
 ) {
   const room = await getRoom(roomId)
   if (!(await isRoomOwnerFull(room, roomId, fromNickname, clientId))) throw new Error('only current owner can delegate')
-  if ((await getMembershipStatus(roomId, toNickname)) !== 'member') throw new Error('new owner must be a member')
+  const toDoc = await findMemberDocByLabel(roomId, toNickname, 'member')
+  if (!toDoc) throw new Error('new owner must be a member')
+  const data = toDoc.data() as Record<string, unknown>
+  const targetNick = String(data.nickname ?? '').trim()
+  const displayOwner = String(data.displayName ?? targetNick).trim() || targetNick
+  const targetCid =
+    typeof data.clientId === 'string' && data.clientId.trim() ? data.clientId.trim() : null
+  if (isOpenchatRoomOwner(room, targetNick, targetCid)) throw new Error('already owner')
+  const memberKey = memberKeyFromSnap(toNickname, toDoc)
   const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
-  const toSnap = await getMemberDoc(roomId, toNickname, null)
-  const toClientRaw = toSnap?.data()?.clientId
-  const toOwnerClientId = typeof toClientRaw === 'string' && toClientRaw.trim() ? toClientRaw.trim() : deleteField()
+  const toOwnerClientId = targetCid ? targetCid : deleteField()
   await updateDoc(roomRef(roomId), {
-    ownerNickname: toNickname,
+    ownerNickname: displayOwner,
     ownerClientId: toOwnerClientId,
-    managers: managers.filter((m) => m !== toNickname),
+    managers: managers.filter(
+      (m) => m !== memberKey && m !== targetNick && m !== displayOwner && m !== toNickname.trim(),
+    ),
   })
-  return { roomId, ownerNickname: toNickname }
+  return { roomId, ownerNickname: displayOwner }
 }
 
 export async function addRoomManager(
@@ -724,10 +732,16 @@ export async function addRoomManager(
 ) {
   const room = await getRoom(roomId)
   if (!(await isRoomOwnerFull(room, roomId, ownerNickname, clientId))) throw new Error('only owner can add managers')
-  if (targetNickname === room.ownerNickname) throw new Error('owner is already moderator')
-  if ((await getMembershipStatus(roomId, targetNickname)) !== 'member') throw new Error('target must be a member')
+  const targetDoc = await findMemberDocByLabel(roomId, targetNickname, 'member')
+  if (!targetDoc) throw new Error('target must be a member')
+  const data = targetDoc.data() as Record<string, unknown>
+  const targetNick = String(data.nickname ?? '').trim()
+  const targetCid =
+    typeof data.clientId === 'string' && data.clientId.trim() ? data.clientId.trim() : null
+  if (isOpenchatRoomOwner(room, targetNick, targetCid)) throw new Error('owner is already moderator')
+  const memberKey = memberKeyFromSnap(targetNickname, targetDoc)
   const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
-  if (!managers.includes(targetNickname)) managers.push(targetNickname)
+  if (!managers.includes(memberKey)) managers.push(memberKey)
   await updateDoc(roomRef(roomId), { managers })
   return { roomId, managers }
 }
@@ -740,9 +754,13 @@ export async function removeRoomManager(
 ) {
   const room = await getRoom(roomId)
   if (!(await isRoomOwnerFull(room, roomId, ownerNickname, clientId))) throw new Error('only owner can remove managers')
+  const memberKey = await resolveMemberKey(roomId, targetNickname, null)
+  const label = targetNickname.trim()
   const managers = ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? []
-  await updateDoc(roomRef(roomId), { managers: managers.filter((m) => m !== targetNickname) })
-  return { roomId, managers: ((await getDoc(roomRef(roomId))).data()?.managers as string[]) ?? [] }
+  const next = managers.filter((m) => m !== label && m !== memberKey)
+  if (next.length === managers.length) throw new Error('target is not a manager')
+  await updateDoc(roomRef(roomId), { managers: next })
+  return { roomId, managers: next }
 }
 
 export async function getInviteInfo(roomId: string, nickname: string, clientId?: string | null): Promise<RoomInviteInfo> {

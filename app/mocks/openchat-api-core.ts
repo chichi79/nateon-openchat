@@ -225,6 +225,18 @@ function resolveBlockedEntryKey(roomId: string, label: string) {
   return trimmed
 }
 
+function resolveManagerKey(roomId: string, label: string) {
+  const trimmed = label.trim()
+  const mgrs = db.managersByRoomId[roomId] ?? []
+  if (mgrs.includes(trimmed)) return trimmed
+  const memberKey = resolveMemberKeyByLabel(roomId, trimmed)
+  if (memberKey && mgrs.includes(memberKey)) return memberKey
+  for (const m of mgrs) {
+    if (displayNameForMemberKey(roomId, m) === trimmed) return m
+  }
+  return null
+}
+
 function isBlocked(roomId: string, nickname: string, clientId?: string | null) {
   const key = resolveMemberKey(roomId, nickname, clientId)
   return (db.blockedByRoomId[roomId] ?? []).includes(key)
@@ -891,21 +903,18 @@ async function handleDelegateOwner(method: string, roomId: string, request: Requ
   if (!toNickname) return badRequest('toNickname is required')
   const delOwnerCid = readClientIdFromRequest(request)
   if (!isRoomOwner(room, roomId, fromNickname, delOwnerCid)) return forbidden('only current owner can delegate')
-  if (getMembershipStatus(roomId, toNickname) !== 'member') return badRequest('new owner must be a member')
+  const toKey = resolveMemberKeyByLabel(roomId, toNickname, 'member')
+  if (!toKey) return badRequest('new owner must be a member')
+  const toCid = clientIdForMemberKey(roomId, toKey)
+  if (isOpenchatRoomOwner(room, toKey, toCid)) return badRequest('already owner')
 
-  room.ownerNickname = toNickname
-  const map = db.clientIdToMemberKeyByRoomId[roomId] ?? {}
-  let nextOwnerClient: string | undefined
-  for (const [cid, key] of Object.entries(map)) {
-    if (key === toNickname) {
-      nextOwnerClient = cid
-      break
-    }
-  }
-  room.ownerClientId = nextOwnerClient
-  db.managersByRoomId[roomId] = (db.managersByRoomId[roomId] ?? []).filter((m) => m !== toNickname)
+  const displayOwner = displayNameForMemberKey(roomId, toKey)
+  room.ownerNickname = displayOwner
+  room.ownerClientId = toCid ?? undefined
+  const mgrs = db.managersByRoomId[roomId] ?? []
+  db.managersByRoomId[roomId] = mgrs.filter((m) => m !== toKey && m !== toNickname && m !== displayOwner)
   persist()
-  return json({ roomId, ownerNickname: toNickname })
+  return json({ roomId, ownerNickname: displayOwner })
 }
 
 async function handleManagersAdd(method: string, roomId: string, request: Request) {
@@ -926,11 +935,13 @@ async function handleManagersAdd(method: string, roomId: string, request: Reques
   if (!targetNickname) return badRequest('targetNickname is required')
   const mgrAddCid = readClientIdFromRequest(request)
   if (!isRoomOwner(room, roomId, ownerNickname, mgrAddCid)) return forbidden('only owner can add managers')
-  if (targetNickname === room.ownerNickname) return badRequest('owner is already moderator')
-  if (getMembershipStatus(roomId, targetNickname) !== 'member') return badRequest('target must be a member')
+  const targetKey = resolveMemberKeyByLabel(roomId, targetNickname, 'member')
+  if (!targetKey) return badRequest('target must be a member')
+  const targetCid = clientIdForMemberKey(roomId, targetKey)
+  if (isOpenchatRoomOwner(room, targetKey, targetCid)) return badRequest('owner is already moderator')
 
   const mgrs = new Set(db.managersByRoomId[roomId] ?? [])
-  mgrs.add(targetNickname)
+  mgrs.add(targetKey)
   db.managersByRoomId[roomId] = [...mgrs]
   persist()
   return json({ roomId, managers: db.managersByRoomId[roomId] })
@@ -955,7 +966,9 @@ async function handleManagersRemove(method: string, roomId: string, request: Req
   const mgrRmCid = readClientIdFromRequest(request)
   if (!isRoomOwner(room, roomId, ownerNickname, mgrRmCid)) return forbidden('only owner can remove managers')
 
-  db.managersByRoomId[roomId] = (db.managersByRoomId[roomId] ?? []).filter((m) => m !== targetNickname)
+  const targetKey = resolveManagerKey(roomId, targetNickname)
+  if (!targetKey) return badRequest('target is not a manager')
+  db.managersByRoomId[roomId] = (db.managersByRoomId[roomId] ?? []).filter((m) => m !== targetKey)
   persist()
   return json({ roomId, managers: db.managersByRoomId[roomId] })
 }

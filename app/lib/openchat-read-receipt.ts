@@ -1,10 +1,4 @@
-/** `renderTextWithMentions`와 동일한 @닉네임 토큰 기준 */
-export function textMentionsNickname(text: string, nickname: string): boolean {
-  const nick = nickname.trim()
-  if (!nick) return false
-  const parts = text.split(/(@[A-Za-z0-9가-힣_]+)/g)
-  return parts.some((p) => p === `@${nick}`)
-}
+export { textMentionsNickname } from '@/lib/openchat-mention'
 
 /**
  * 다른 사람이 `messageCreatedAt` 이전·동시까지의 대화를 읽었다고 표시한 경우만 집계.
