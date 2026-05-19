@@ -375,6 +375,32 @@ textarea.input {
   }
 }
 
+/* 모바일: 입력창을 visualViewport 기준 top 으로 고정 (전송 후 사라지는 현상 방지) */
+@media (max-width: 767px) {
+  .openchat-compose-dock {
+    top: var(--openchat-compose-top, auto);
+    bottom: auto;
+  }
+
+  .openchat-fab-above-compose {
+    top: calc(
+      var(--openchat-compose-top, 100dvh) - var(--openchat-fab-h, 3rem) - var(--openchat-fab-stack-gap, 0.5rem)
+    );
+    bottom: auto;
+  }
+
+  .openchat-banner-above-compose {
+    top: calc(var(--openchat-compose-top, 100dvh) - var(--openchat-compose-h, 5.25rem) - var(--openchat-compose-gap, 0.5rem));
+    bottom: auto;
+  }
+
+  .openchat-room-layout .openchat-compose-dock {
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+}
+
 /* 참여 방 사이드바·드로어 공통 (PC + 모바일) */
 .openchat-participation-sidebar-head {
   flex-shrink: 0;

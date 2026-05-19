@@ -664,6 +664,7 @@ export default function RoomDetailPage() {
       setSelectedSticker(null)
       requestAnimationFrame(() => {
         composeTextareaRef.current?.focus({ preventScroll: true })
+        syncOpenchatKeyboardLayout()
       })
     }
   }, [fetcher.data?.message, fetcher.state, flushTypingOff])
@@ -1151,6 +1152,23 @@ export default function RoomDetailPage() {
     })
   }, [])
 
+  const maintainMobileComposeAfterSend = useCallback(() => {
+    if (typeof window === 'undefined' || !window.matchMedia('(max-width: 767px)').matches) return
+
+    const focusCompose = () => composeTextareaRef.current?.focus({ preventScroll: true })
+
+    const tick = () => {
+      scrollToBottom('auto')
+      focusCompose()
+      syncOpenchatKeyboardLayout()
+    }
+
+    tick()
+    requestAnimationFrame(tick)
+    window.setTimeout(tick, 60)
+    window.setTimeout(tick, 160)
+  }, [scrollToBottom])
+
   const scrollToQuotedMessage = useCallback((messageId: string) => {
     requestAnimationFrame(() => {
       document.getElementById(`openchat-msg-${messageId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -1162,7 +1180,7 @@ export default function RoomDetailPage() {
     scrollAfterOwnSendRef.current = true
     formRef.current?.requestSubmit()
     composeTextareaRef.current?.focus({ preventScroll: true })
-    syncOpenchatKeyboardLayout({ absorbOffsetTop: true })
+    syncOpenchatKeyboardLayout()
   }, [canPost, canSendCompose, fetcher.state])
 
   useLayoutEffect(() => {
@@ -1273,13 +1291,9 @@ export default function RoomDetailPage() {
         composeTextareaRef.current?.focus({ preventScroll: true })
       })
     } else {
-      requestAnimationFrame(() => {
-        composeTextareaRef.current?.focus({ preventScroll: true })
-        syncOpenchatKeyboardLayout({ absorbOffsetTop: true })
-      })
-      window.setTimeout(() => syncOpenchatKeyboardLayout({ absorbOffsetTop: true }), 80)
+      maintainMobileComposeAfterSend()
     }
-  }, [fetcher.state, fetcher.data?.message?.id, scrollToBottom])
+  }, [fetcher.state, fetcher.data?.message?.id, scrollToBottom, maintainMobileComposeAfterSend])
 
   const lastMsgId = sortedMessages.at(-1)?.id
   const prevLastMsgId = useRef<string | undefined>(undefined)
@@ -1294,6 +1308,9 @@ export default function RoomDetailPage() {
     if (prev !== lastMsgId) {
       if (suppressNextNewMsgBadgeRef.current) {
         suppressNextNewMsgBadgeRef.current = false
+        if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
+          requestAnimationFrame(() => scrollToBottom('auto'))
+        }
         return
       }
 
@@ -1855,8 +1872,8 @@ export default function RoomDetailPage() {
           className={[
             'relative space-y-4 overflow-x-clip px-4 pt-4 sm:px-5',
             selectedSticker && canPost
-              ? 'pb-[calc(var(--openchat-compose-h)+5.5rem+env(safe-area-inset-bottom,0px))]'
-              : 'pb-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))]',
+              ? 'pb-[calc(var(--openchat-compose-h)+5.5rem+var(--openchat-safe-bottom,env(safe-area-inset-bottom,0px)))]'
+              : 'pb-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+var(--openchat-safe-bottom,env(safe-area-inset-bottom,0px)))]',
           ].join(' ')}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
@@ -2408,6 +2425,7 @@ export default function RoomDetailPage() {
                   className='openchat-compose-input'
                   autoComplete='off'
                   enterKeyHint='send'
+                  onFocus={() => syncOpenchatKeyboardLayout()}
                   title={!canPost ? '입장 후 메시지를 보낼 수 있어요' : 'Enter 전송 · Shift+Enter 줄바꿈 · @로 멘션'}
                 />
                 <div className='openchat-compose-toolbar'>
