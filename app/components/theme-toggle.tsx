@@ -1,28 +1,18 @@
 import { useCallback, useSyncExternalStore } from 'react'
 
-const STORAGE_KEY = 'openchat-ui-theme'
-
-function readTheme(): 'light' | 'dark' {
-  if (typeof document === 'undefined') return 'dark'
-  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'
-}
+import {
+  applyOpenchatTheme,
+  readOpenchatThemeFromDocument,
+  type OpenchatTheme,
+} from '@/lib/openchat-theme'
 
 function subscribe(onChange: () => void) {
   window.addEventListener('openchat-theme', onChange)
   return () => window.removeEventListener('openchat-theme', onChange)
 }
 
-function applyTheme(next: 'light' | 'dark') {
-  document.documentElement.style.colorScheme = next
-  document.documentElement.dataset.theme = next
-  window.dispatchEvent(new Event('openchat-theme'))
-  requestAnimationFrame(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, next)
-    } catch {
-      /* ignore */
-    }
-  })
+function getThemeSnapshot(): OpenchatTheme {
+  return readOpenchatThemeFromDocument()
 }
 
 function IconSun() {
@@ -51,10 +41,10 @@ function IconMoon() {
 }
 
 export function ThemeToggle() {
-  const theme = useSyncExternalStore(subscribe, readTheme, () => 'dark')
+  const theme = useSyncExternalStore(subscribe, getThemeSnapshot, getThemeSnapshot)
 
   const toggle = useCallback(() => {
-    applyTheme(theme === 'dark' ? 'light' : 'dark')
+    applyOpenchatTheme(theme === 'dark' ? 'light' : 'dark')
   }, [theme])
 
   const isDark = theme === 'dark'

@@ -1,20 +1,16 @@
 import { forwardRef, useLayoutEffect, useRef } from 'react'
-import { Link, Outlet, useLocation } from 'react-router'
+import { Link, Outlet, useLocation, useNavigation } from 'react-router'
 
 import clsx from 'clsx'
 
 import { getAuthFromCookie, type OpenChatAuth } from '@/auth/auth'
+import { OpenchatPageLoadingShell, openchatPageLoadingCopy } from '@/components/openchat-page-loading'
 import { NavigationProgress } from '@/components/navigation-progress'
+import { isRoomChatDetailPath, isRoomsListPath } from '@/lib/openchat-room-path'
 import { RouteErrorFallback } from '@/components/route-error-fallback'
 import { ThemeToggle } from '@/components/theme-toggle'
 
 import type { Route } from './+types/main-layout'
-
-function isRoomChatDetailPath(pathname: string) {
-  if (!pathname.startsWith('/rooms/')) return false
-  const seg = pathname.slice('/rooms/'.length).split('/')[0] ?? ''
-  return Boolean(seg) && seg !== 'new'
-}
 
 function BrandMark() {
   return (
@@ -78,7 +74,19 @@ const TopNav = forwardRef<HTMLElement>(function TopNav(_, ref) {
 
 export default function MainLayout() {
   const { pathname } = useLocation()
+  const navigation = useNavigation()
   const roomChatDetail = isRoomChatDetailPath(pathname)
+  /** 다른 화면→대상 진입만. 같은 URL F5 는 루트 HydrateFallback */
+  const pendingRoomChatLoad =
+    navigation.state === 'loading' &&
+    navigation.location != null &&
+    isRoomChatDetailPath(navigation.location.pathname) &&
+    navigation.location.pathname !== pathname
+  const pendingRoomsListLoad =
+    navigation.state === 'loading' &&
+    navigation.location != null &&
+    isRoomsListPath(navigation.location.pathname) &&
+    navigation.location.pathname !== pathname
   const headerRef = useRef<HTMLElement | null>(null)
 
   useLayoutEffect(() => {
@@ -115,7 +123,13 @@ export default function MainLayout() {
           roomChatDetail ? 'px-0 pb-0 pt-0' : 'max-w-5xl px-4 py-8',
         )}
       >
-        <Outlet />
+        {pendingRoomChatLoad ? (
+          <OpenchatPageLoadingShell variant='chat' {...openchatPageLoadingCopy.roomChat} />
+        ) : pendingRoomsListLoad ? (
+          <OpenchatPageLoadingShell variant='page' {...openchatPageLoadingCopy.roomList} />
+        ) : (
+          <Outlet />
+        )}
       </main>
     </div>
   )

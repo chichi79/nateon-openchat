@@ -1,7 +1,15 @@
+import { useLayoutEffect } from 'react'
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router'
 
 import type { Route } from './+types/root'
+import { OpenchatPageLoadingShell, openchatPageLoadingCopy } from '@/components/openchat-page-loading'
 import { RouteErrorFallback } from '@/components/route-error-fallback'
+import { hydrateFallbackPathname, resolveHydrateLoadingKind } from '@/lib/openchat-room-path'
+import {
+  applyOpenchatTheme,
+  OPENCHAT_THEME_INIT_SCRIPT,
+  readStoredOpenchatTheme,
+} from '@/lib/openchat-theme'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
 import { getFirebaseApp, isFirebaseConfigured } from '@/firebase'
 import { isViteEnvFalse, isViteEnvTrue } from '@/lib/vite-env-flags'
@@ -10,8 +18,6 @@ import { installMockFetch } from '@/mocks/install-mock-fetch'
 import '@/assets/styles/app.css'
 
 void getFirebaseApp()
-
-const OPENCHAT_THEME_INIT = `(function(){try{var k='openchat-ui-theme';var s=localStorage.getItem(k);var t=s==='light'||s==='dark'?s:'dark';document.documentElement.style.colorScheme=t;document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.style.colorScheme='dark';document.documentElement.setAttribute('data-theme','dark');}})();`
 
 const firestoreLive = useOpenchatFirestore()
 const mockDisabled = isViteEnvFalse(import.meta.env.VITE_ENABLE_MOCK_API)
@@ -58,16 +64,13 @@ export const links: Route.LinksFunction = () => [
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang='ko' suppressHydrationWarning data-theme='dark' style={{ colorScheme: 'dark' }}>
+    <html lang='ko' suppressHydrationWarning>
       <head>
+        <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: OPENCHAT_THEME_INIT_SCRIPT }} />
         <meta charSet='utf-8' />
         <meta
           name='viewport'
           content='width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content'
-        />
-        <script
-          suppressHydrationWarning
-          dangerouslySetInnerHTML={{ __html: OPENCHAT_THEME_INIT }}
         />
         <Meta />
         <Links />
@@ -98,41 +101,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  useLayoutEffect(() => {
+    applyOpenchatTheme(readStoredOpenchatTheme())
+  }, [])
+
   return <Outlet />
 }
 
-/** SPA 초기 청크 로딩 중(Tailwind 전에도 보이도록 인라인 스타일만 사용) */
+/** SPA 초기 청크 로딩 중 — 경로별 문구, 앱 테마(var(--bg)) 유지 */
 export function HydrateFallback() {
+  const kind = resolveHydrateLoadingKind(hydrateFallbackPathname())
+  const copy = openchatPageLoadingCopy[kind]
+  const variant = kind === 'roomChat' ? 'chat' : 'page'
+
   return (
-    <div
-      style={{
-        minHeight: '100dvh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '0.75rem',
-        padding: '0 1.5rem',
-        textAlign: 'center',
-        background: '#07090f',
-        color: '#9ba4b3',
-        fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
-      }}
-    >
-      <div
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: 12,
-          background: 'linear-gradient(135deg, #7CA1FF, #5C87FF, #7A55E6)',
-          boxShadow: '0 8px 24px -8px rgba(92,135,255,0.55)',
-        }}
-        aria-hidden
-      />
-      <p style={{ fontSize: '0.875rem', lineHeight: 1.6, margin: 0 }}>OpenChat 불러오는 중…</p>
-      <p style={{ fontSize: '0.75rem', lineHeight: 1.6, margin: 0, maxWidth: '22rem', color: '#6a7484' }}>
-        화면이 계속 비어 있으면 F12 → Console·Network에서 <span style={{ padding: '0 0.25rem', borderRadius: 4, background: 'rgba(255,255,255,0.08)' }}>/assets/</span> 요청이 404인지, 빨간 오류가 있는지 확인해 주세요.
-      </p>
+    <div className='openchat-hydrate-fallback'>
+      <OpenchatPageLoadingShell variant={variant} fullscreen {...copy} />
     </div>
   )
 }

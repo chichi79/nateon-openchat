@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Link, isRouteErrorResponse, useFetcher, useLoaderData, useNavigate, useRevalidator } from 'react-router'
+import {
+  Link,
+  isRouteErrorResponse,
+  useFetcher,
+  useLoaderData,
+  useNavigate,
+  useLocation,
+  useNavigation,
+  useRevalidator,
+} from 'react-router'
 
 import type {
   GetMembershipResponse,
@@ -39,6 +48,7 @@ import {
   setMentionNotificationsEnabled,
 } from '@/lib/openchat-mention-notification'
 import { ComposeEmojiPicker } from '@/components/compose-emoji-picker'
+import { OpenchatPageLoading, openchatPageLoadingCopy } from '@/components/openchat-page-loading'
 import {
   OpenchatParticipationDrawer,
   OpenchatParticipationSidebar,
@@ -246,7 +256,12 @@ export default function RoomDetailPage() {
     initialMe: GetMembershipResponse
   }
   const revalidator = useRevalidator()
+  const navigation = useNavigation()
+  const { pathname } = useLocation()
   const navigate = useNavigate()
+  const isRoomDataLoading =
+    revalidator.state === 'loading' ||
+    (navigation.state === 'loading' && navigation.location?.pathname === pathname)
   const fetcher = useFetcher() as unknown as {
     Form: typeof useFetcher.prototype.Form
     data?: { message?: OpenChatMessage }
@@ -260,6 +275,7 @@ export default function RoomDetailPage() {
   const myClientId = ensureOpenchatClientId()
   const formRef = useRef<HTMLFormElement | null>(null)
   const chatScrollRef = useRef<HTMLDivElement | null>(null)
+  const stickerPreviewRef = useRef<HTMLDivElement | null>(null)
   const composeBarRef = useRef<HTMLDivElement | null>(null)
   const roomStickyHeadRef = useRef<HTMLDivElement | null>(null)
   const composeTextareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -862,7 +878,10 @@ export default function RoomDetailPage() {
 
   const selectSticker = useCallback((emoji: string) => {
     setSelectedSticker(emoji)
-    requestAnimationFrame(() => composeTextareaRef.current?.focus({ preventScroll: true }))
+    requestAnimationFrame(() => {
+      composeTextareaRef.current?.focus({ preventScroll: true })
+      syncOpenchatKeyboardLayout()
+    })
   }, [])
 
   async function refreshMe() {
@@ -1238,6 +1257,28 @@ export default function RoomDetailPage() {
       window.removeEventListener('resize', sync)
     }
   }, [replyTo?.id, outgoingAttachments.length, selectedSticker, canPost, isNicknameOpen])
+
+  useLayoutEffect(() => {
+    const el = stickerPreviewRef.current
+    if (!selectedSticker || !el || typeof ResizeObserver === 'undefined') {
+      document.documentElement.style.removeProperty('--openchat-sticker-preview-h')
+      return
+    }
+
+    const sync = () => {
+      const h = el.getBoundingClientRect().height
+      document.documentElement.style.setProperty('--openchat-sticker-preview-h', `${Math.round(h * 1000) / 1000}px`)
+      if (isOpenchatMobileChatViewport()) syncOpenchatKeyboardLayout()
+    }
+
+    sync()
+    const ro = new ResizeObserver(() => sync())
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      document.documentElement.style.removeProperty('--openchat-sticker-preview-h')
+    }
+  }, [selectedSticker])
 
   useLayoutEffect(() => {
     const el = roomStickyHeadRef.current
@@ -1956,6 +1997,11 @@ export default function RoomDetailPage() {
       ) : null}
 
       <div className='openchat-chat-panel relative min-w-0 overflow-hidden'>
+        {isRoomDataLoading ? (
+          <div className='openchat-page-loading-overlay'>
+            <OpenchatPageLoading compact {...openchatPageLoadingCopy.roomChat} />
+          </div>
+        ) : null}
         {!canViewChatHistory && room.policy !== 'open_link' ? (
           <div className='border-b border-slate-200 dark:border-white/5 bg-slate-100 dark:bg-black/20 px-4 py-6 text-center text-sm text-slate-600 dark:text-zinc-400'>
             입장(초대코드 또는 방장 승인) 후에 대화 내용을 볼 수 있어요.
@@ -2240,50 +2286,44 @@ export default function RoomDetailPage() {
                 </li>
               )
             })}
-          {canViewChatHistory && typistLabel ? (
-            <li
-              className='pointer-events-none sticky bottom-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+env(safe-area-inset-bottom,0px))] z-10 -mx-4 flex list-none justify-start px-4 pb-1'
-              role='status'
-              aria-live='polite'
-              aria-atomic='true'
-            >
-              <div
-                className='pointer-events-auto flex h-9 shrink-0 items-center justify-center rounded-full border border-slate-200/90 bg-white/90 px-2.5 shadow-[0_6px_20px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md dark:border-white/10 dark:bg-zinc-900/90 dark:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.55)]'
-                title={typistLabel}
-              >
-                <span className='sr-only'>{typistLabel}</span>
-                <span className='inline-flex h-3.5 items-center gap-[3px] text-slate-500 dark:text-zinc-400' aria-hidden>
-                  <span className='openchat-typing-dot h-1 w-1 rounded-full bg-current' />
-                  <span className='openchat-typing-dot h-1 w-1 rounded-full bg-current' />
-                  <span className='openchat-typing-dot h-1 w-1 rounded-full bg-current' />
-                </span>
-              </div>
-            </li>
-          ) : null}
           <li aria-hidden className='pointer-events-none h-0 shrink-0 list-none' />
         </ul>
         </div>
 
-        {selectedSticker && canPost ? (
-          <div className='openchat-chat-sticker-preview' role='region' aria-label='선택한 이모티콘'>
-            <div className='openchat-chat-sticker-preview-inner'>
-              <span className='openchat-chat-sticker-preview-emoji' aria-hidden>
-                {selectedSticker}
-              </span>
-              <button
-                type='button'
-                className='openchat-chat-sticker-preview-close'
-                aria-label='이모티콘 선택 취소'
-                onClick={() => setSelectedSticker(null)}
-              >
-                <svg viewBox='0 0 24 24' className='h-4 w-4' fill='none' stroke='currentColor' strokeWidth='2.2' strokeLinecap='round' aria-hidden>
-                  <path d='M18 6 6 18M6 6l12 12' />
-                </svg>
-              </button>
-            </div>
-          </div>
-        ) : null}
       </div>
+
+      {canViewChatHistory && typistLabel ? (
+        <div className='openchat-typing-float' role='status' aria-live='polite' aria-atomic='true'>
+          <div className='openchat-typing-float-inner' title={typistLabel}>
+            <span className='sr-only'>{typistLabel}</span>
+            <span className='openchat-typing-float-dots' aria-hidden>
+              <span className='openchat-typing-dot' />
+              <span className='openchat-typing-dot' />
+              <span className='openchat-typing-dot' />
+            </span>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedSticker && canPost ? (
+        <div ref={stickerPreviewRef} className='openchat-chat-sticker-preview' role='region' aria-label='선택한 이모티콘'>
+          <div className='openchat-chat-sticker-preview-inner'>
+            <span className='openchat-chat-sticker-preview-emoji' aria-hidden>
+              {selectedSticker}
+            </span>
+            <button
+              type='button'
+              className='openchat-chat-sticker-preview-close'
+              aria-label='이모티콘 선택 취소'
+              onClick={() => setSelectedSticker(null)}
+            >
+              <svg viewBox='0 0 24 24' className='h-4 w-4' fill='none' stroke='currentColor' strokeWidth='2.2' strokeLinecap='round' aria-hidden>
+                <path d='M18 6 6 18M6 6l12 12' />
+              </svg>
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {newMsgCount > 0 && !isAtBottom ? (
         <button
@@ -2629,7 +2669,7 @@ export default function RoomDetailPage() {
 
       {messageMenu ? (
         <div
-          className='fixed inset-0 z-[55] flex items-center justify-center bg-slate-900/20 p-4 backdrop-blur-[2px] dark:bg-black/35'
+          className='openchat-message-actions-overlay'
           role='presentation'
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) setMessageMenu(null)
@@ -2637,7 +2677,7 @@ export default function RoomDetailPage() {
         >
           <div
             ref={messageActionsMenuRef}
-            className='card w-full max-w-sm overflow-hidden p-0 shadow-xl'
+            className='openchat-message-actions-menu card w-full overflow-hidden p-0 shadow-xl'
             role='dialog'
             aria-modal='true'
             aria-labelledby='openchat-message-actions-title'
