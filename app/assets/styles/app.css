@@ -398,12 +398,6 @@ textarea.input {
     bottom: auto;
   }
 
-  .openchat-chat-sticker-preview {
-    top: calc(var(--openchat-compose-top, 100dvh) - var(--openchat-sticker-preview-h, 6.75rem));
-    bottom: auto;
-    z-index: 31;
-  }
-
   .openchat-room-layout .openchat-compose-dock {
     left: 0;
     right: 0;
@@ -1410,27 +1404,35 @@ html[data-theme='dark'] .openchat-emoji-picker-body {
 .openchat-compose-emoji-cell:active {
   transform: scale(0.94);
 }
-/* 선택한 이모티콘 미리보기 — 작성창 상단에 밀착 */
+/* 선택한 이모티콘 미리보기 — 입력창 상단에 밀착(compose-top 실측) */
 .openchat-chat-sticker-preview {
   position: fixed;
   left: 0;
   right: 0;
   z-index: 35;
+  margin: 0;
   border-top: 1px solid rgba(61, 66, 77, 0.7);
+  border-bottom: none;
   background: rgba(74, 79, 89, 0.7);
   padding: 0.625rem 1rem;
-  bottom: calc(
-    var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-safe-bottom, env(safe-area-inset-bottom, 0px))
-  );
+  top: var(--openchat-compose-top, auto);
+  bottom: auto;
+  transform: translateY(-100%);
   box-shadow: 0 -4px 16px -6px rgba(15, 23, 42, 0.15);
   pointer-events: auto;
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }
+
 html[data-theme='dark'] .openchat-chat-sticker-preview {
   border-top-color: rgba(255, 255, 255, 0.1);
   background: rgba(58, 63, 74, 0.7);
   box-shadow: 0 -6px 20px -8px rgba(0, 0, 0, 0.35);
+}
+
+/* 미리보기·입력창 사이 이중 테두리 제거 */
+html[data-openchat-sticker-preview] .openchat-compose-dock {
+  border-top-color: transparent;
 }
 .openchat-chat-sticker-preview-inner {
   position: relative;

@@ -22,14 +22,15 @@
     "react-router": "^7.15.0"
   },
   "devDependencies": {
-    "firebase-tools": "^14.24.0",
     "@eslint/js": "^9.33.0",
     "@react-router/dev": "^7.15.0",
     "@tailwindcss/vite": "^4.1.4",
     "@types/node": "^20",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
+    "esbuild": "^0.25.12",
     "eslint": "^9.33.0",
+    "firebase-tools": "^14.24.0",
     "globals": "^16.3.0",
     "tailwindcss": "^4.1.4",
     "typescript": "^5.8.3",

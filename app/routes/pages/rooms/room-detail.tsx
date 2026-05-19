@@ -695,7 +695,7 @@ export default function RoomDetailPage() {
       setSelectedSticker(null)
       requestAnimationFrame(() => {
         composeTextareaRef.current?.focus({ preventScroll: true })
-        syncOpenchatKeyboardLayout()
+        syncOpenchatKeyboardLayout(composeBarRef.current)
       })
     }
   }, [fetcher.data?.message, fetcher.state, flushTypingOff])
@@ -880,7 +880,7 @@ export default function RoomDetailPage() {
     setSelectedSticker(emoji)
     requestAnimationFrame(() => {
       composeTextareaRef.current?.focus({ preventScroll: true })
-      syncOpenchatKeyboardLayout()
+      syncOpenchatKeyboardLayout(composeBarRef.current)
     })
   }, [])
 
@@ -1207,7 +1207,7 @@ export default function RoomDetailPage() {
 
     const tick = () => {
       focusCompose()
-      syncOpenchatKeyboardLayout()
+      syncOpenchatKeyboardLayout(composeBarRef.current)
       const chatScroll = chatScrollRef.current
       if (chatScroll) {
         chatScroll.scrollTop = chatScroll.scrollHeight
@@ -1235,7 +1235,7 @@ export default function RoomDetailPage() {
     scrollAfterOwnSendRef.current = true
     formRef.current?.requestSubmit()
     composeTextareaRef.current?.focus({ preventScroll: true })
-    syncOpenchatKeyboardLayout()
+    syncOpenchatKeyboardLayout(composeBarRef.current)
   }, [canPost, canSendCompose, fetcher.state])
 
   useLayoutEffect(() => {
@@ -1243,9 +1243,13 @@ export default function RoomDetailPage() {
     if (!el || typeof ResizeObserver === 'undefined') return
 
     const sync = () => {
-      const h = el.getBoundingClientRect().height
-      document.documentElement.style.setProperty('--openchat-compose-h', `${Math.round(h * 1000) / 1000}px`)
-      if (window.matchMedia('(max-width: 767px)').matches) syncOpenchatKeyboardLayout()
+      const rect = el.getBoundingClientRect()
+      document.documentElement.style.setProperty('--openchat-compose-h', `${Math.round(rect.height * 1000) / 1000}px`)
+      if (window.matchMedia('(max-width: 767px)').matches) {
+        syncOpenchatKeyboardLayout(el)
+      } else {
+        document.documentElement.style.setProperty('--openchat-compose-top', `${Math.round(rect.top * 1000) / 1000}px`)
+      }
     }
 
     sync()
@@ -1268,7 +1272,7 @@ export default function RoomDetailPage() {
     const sync = () => {
       const h = el.getBoundingClientRect().height
       document.documentElement.style.setProperty('--openchat-sticker-preview-h', `${Math.round(h * 1000) / 1000}px`)
-      if (isOpenchatMobileChatViewport()) syncOpenchatKeyboardLayout()
+      syncOpenchatKeyboardLayout(composeBarRef.current)
     }
 
     sync()
@@ -1279,6 +1283,16 @@ export default function RoomDetailPage() {
       document.documentElement.style.removeProperty('--openchat-sticker-preview-h')
     }
   }, [selectedSticker])
+
+  useLayoutEffect(() => {
+    if (selectedSticker && canPost) {
+      document.documentElement.setAttribute('data-openchat-sticker-preview', '')
+      syncOpenchatKeyboardLayout(composeBarRef.current)
+    } else {
+      document.documentElement.removeAttribute('data-openchat-sticker-preview')
+    }
+    return () => document.documentElement.removeAttribute('data-openchat-sticker-preview')
+  }, [selectedSticker, canPost])
 
   useLayoutEffect(() => {
     const el = roomStickyHeadRef.current
@@ -1442,7 +1456,7 @@ export default function RoomDetailPage() {
         if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
           requestAnimationFrame(() => {
             scrollToBottom('auto')
-            syncOpenchatKeyboardLayout()
+            syncOpenchatKeyboardLayout(composeBarRef.current)
           })
         }
         return
@@ -2560,7 +2574,7 @@ export default function RoomDetailPage() {
                   className='openchat-compose-input'
                   autoComplete='off'
                   enterKeyHint='send'
-                  onFocus={() => syncOpenchatKeyboardLayout()}
+                  onFocus={() => syncOpenchatKeyboardLayout(composeBarRef.current)}
                   title={!canPost ? '입장 후 메시지를 보낼 수 있어요' : 'Enter 전송 · Shift+Enter 줄바꿈 · @로 멘션'}
                 />
                 <div className='openchat-compose-toolbar'>

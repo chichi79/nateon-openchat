@@ -17,15 +17,33 @@ function isComposeFocused() {
   return el instanceof HTMLElement && Boolean(el.closest('.openchat-compose-dock'))
 }
 
-function syncKeyboardLayout() {
+function resolveComposeDock(explicit?: HTMLElement | null) {
+  if (explicit) return explicit
+  const el = document.querySelector('.openchat-compose-dock')
+  return el instanceof HTMLElement ? el : null
+}
+
+/** 입력창·이모티콘 미리보기 공통 앵커 — 실제 getBoundingClientRect().top */
+export function syncOpenchatComposeAnchor(composeEl?: HTMLElement | null) {
+  if (typeof window === 'undefined') return
+  const compose = resolveComposeDock(composeEl)
+  if (!compose) return
+  const top = compose.getBoundingClientRect().top
+  if (!Number.isFinite(top)) return
+  document.documentElement.style.setProperty(COMPOSE_TOP_VAR, `${Math.round(top * 1000) / 1000}px`)
+}
+
+function syncKeyboardLayout(composeEl?: HTMLElement | null) {
   if (typeof window === 'undefined') return
 
   const root = document.documentElement
+  const compose = resolveComposeDock(composeEl)
 
   if (!isOpenchatMobileChatViewport()) {
     root.style.setProperty(KEYBOARD_OFFSET_VAR, '0px')
-    root.style.removeProperty(COMPOSE_TOP_VAR)
     root.style.removeProperty(SAFE_BOTTOM_VAR)
+    if (compose) syncOpenchatComposeAnchor(compose)
+    else root.style.removeProperty(COMPOSE_TOP_VAR)
     return
   }
 
@@ -51,21 +69,30 @@ function syncKeyboardLayout() {
   } else {
     root.style.removeProperty(SAFE_BOTTOM_VAR)
   }
+
+  /* visualViewport 계산 후 실제 입력창 top 으로 맞춤(미리보기 translateY(-100%) 포함) */
+  const anchor = () => syncOpenchatComposeAnchor(compose)
+  requestAnimationFrame(() => requestAnimationFrame(anchor))
 }
 
 let raf = 0
-function scheduleSync() {
+let pendingComposeEl: HTMLElement | null | undefined
+
+function scheduleSync(composeEl?: HTMLElement | null) {
+  if (composeEl !== undefined) pendingComposeEl = composeEl
   cancelAnimationFrame(raf)
   raf = requestAnimationFrame(() => {
-    syncKeyboardLayout()
+    syncKeyboardLayout(pendingComposeEl ?? null)
   })
 }
 
-/** 전송·포커스 직후 visualViewport 정렬이 늦을 때 수동 동기화 */
-export function syncOpenchatKeyboardLayout() {
-  scheduleSync()
-  requestAnimationFrame(scheduleSync)
-  window.setTimeout(scheduleSync, 50)
+/** 전송·포커스·키보드·미리보기 변경 직후 동기화 */
+export function syncOpenchatKeyboardLayout(composeEl?: HTMLElement | null) {
+  pendingComposeEl = composeEl
+  scheduleSync(composeEl)
+  requestAnimationFrame(() => scheduleSync())
+  window.setTimeout(() => scheduleSync(), 50)
+  window.setTimeout(() => scheduleSync(), 150)
 }
 
 /**
@@ -75,29 +102,30 @@ export function useOpenchatKeyboardOffset(active = true) {
   useLayoutEffect(() => {
     if (!active || typeof window === 'undefined') return
 
+    const onViewportChange = () => scheduleSync()
+
     scheduleSync()
 
     const vv = window.visualViewport
-    vv?.addEventListener('resize', scheduleSync)
-    vv?.addEventListener('scroll', scheduleSync)
-    window.addEventListener('resize', scheduleSync)
-    window.addEventListener('orientationchange', scheduleSync)
-    document.addEventListener('focusin', scheduleSync)
-    document.addEventListener('focusout', scheduleSync)
+    vv?.addEventListener('resize', onViewportChange)
+    vv?.addEventListener('scroll', onViewportChange)
+    window.addEventListener('resize', onViewportChange)
+    window.addEventListener('orientationchange', onViewportChange)
+    document.addEventListener('focusin', onViewportChange)
+    document.addEventListener('focusout', onViewportChange)
 
     const mq = window.matchMedia('(max-width: 767px)')
-    const onMq = () => scheduleSync()
-    mq.addEventListener('change', onMq)
+    mq.addEventListener('change', onViewportChange)
 
     return () => {
       cancelAnimationFrame(raf)
-      vv?.removeEventListener('resize', scheduleSync)
-      vv?.removeEventListener('scroll', scheduleSync)
-      window.removeEventListener('resize', scheduleSync)
-      window.removeEventListener('orientationchange', scheduleSync)
-      document.removeEventListener('focusin', scheduleSync)
-      document.removeEventListener('focusout', scheduleSync)
-      mq.removeEventListener('change', onMq)
+      vv?.removeEventListener('resize', onViewportChange)
+      vv?.removeEventListener('scroll', onViewportChange)
+      window.removeEventListener('resize', onViewportChange)
+      window.removeEventListener('orientationchange', onViewportChange)
+      document.removeEventListener('focusin', onViewportChange)
+      document.removeEventListener('focusout', onViewportChange)
+      mq.removeEventListener('change', onViewportChange)
       document.documentElement.style.removeProperty(KEYBOARD_OFFSET_VAR)
       document.documentElement.style.removeProperty(COMPOSE_TOP_VAR)
       document.documentElement.style.removeProperty(SAFE_BOTTOM_VAR)
