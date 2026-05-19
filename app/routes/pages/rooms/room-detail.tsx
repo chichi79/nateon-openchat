@@ -86,7 +86,7 @@ import {
 } from '@/services/openchat.service'
 import { subscribeRoomMessages } from '@/services/openchat-firestore.service'
 import { useFocusTrap } from '@/hooks/use-focus-trap'
-import { useOpenchatKeyboardOffset } from '@/hooks/use-openchat-keyboard-offset'
+import { syncOpenchatKeyboardLayout, useOpenchatKeyboardOffset } from '@/hooks/use-openchat-keyboard-offset'
 import { OpenchatToastHost } from '@/components/openchat-toast-host'
 import { RouteErrorFallback } from '@/components/route-error-fallback'
 import { OPENCHAT_MOCK_DB_STORAGE_KEY } from '@/mocks/install-mock-fetch'
@@ -1162,6 +1162,7 @@ export default function RoomDetailPage() {
     scrollAfterOwnSendRef.current = true
     formRef.current?.requestSubmit()
     composeTextareaRef.current?.focus({ preventScroll: true })
+    syncOpenchatKeyboardLayout({ absorbOffsetTop: true })
   }, [canPost, canSendCompose, fetcher.state])
 
   useLayoutEffect(() => {
@@ -1274,7 +1275,9 @@ export default function RoomDetailPage() {
     } else {
       requestAnimationFrame(() => {
         composeTextareaRef.current?.focus({ preventScroll: true })
+        syncOpenchatKeyboardLayout({ absorbOffsetTop: true })
       })
+      window.setTimeout(() => syncOpenchatKeyboardLayout({ absorbOffsetTop: true }), 80)
     }
   }, [fetcher.state, fetcher.data?.message?.id, scrollToBottom])
 

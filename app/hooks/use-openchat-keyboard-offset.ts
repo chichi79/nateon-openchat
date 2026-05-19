@@ -1,57 +1,101 @@
 import { useEffect } from 'react'
 
 const KEYBOARD_OFFSET_VAR = '--openchat-keyboard-offset'
+const SAFE_BOTTOM_VAR = '--openchat-safe-bottom'
 
-function viewportUsesResizesContent() {
-  const content = document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? ''
-  return content.includes('interactive-widget=resizes-content')
+function isMobileViewport() {
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
 }
 
 /**
- * `interactive-widget=resizes-content`(root viewport 메타)면 레이아웃이 키보드만큼 줄어들어
- * fixed 입력창은 bottom:0 만으로 충분합니다. 수동 offset 을 더하면 전송 후 입력창이 위로 뜁니다.
- * 구형 브라우저만 visualViewport 로 보조 offset 을 계산합니다.
+ * layout viewport 하단과 visual viewport 하단 차이.
+ * 양수: 키보드·스크롤 drift → 입력창을 위로
+ * 음수: Safari 하단 툴바 숨김 → visual 이 더 길어지면 입력창을 아래로
+ */
+function visualBottomInset(vv: VisualViewport) {
+  return window.innerHeight - vv.offsetTop - vv.height
+}
+
+function syncKeyboardLayout() {
+  if (typeof window === 'undefined') return
+
+  const root = document.documentElement
+
+  if (!isMobileViewport()) {
+    root.style.setProperty(KEYBOARD_OFFSET_VAR, '0px')
+    root.style.removeProperty(SAFE_BOTTOM_VAR)
+    return
+  }
+
+  const vv = window.visualViewport
+  if (!vv) {
+    root.style.setProperty(KEYBOARD_OFFSET_VAR, '0px')
+    root.style.removeProperty(SAFE_BOTTOM_VAR)
+    return
+  }
+
+  const inset = visualBottomInset(vv)
+  const keyboardLikely = vv.height < window.innerHeight * 0.85
+
+  root.style.setProperty(KEYBOARD_OFFSET_VAR, `${Math.round(inset)}px`)
+  if (keyboardLikely) {
+    root.style.setProperty(SAFE_BOTTOM_VAR, '0px')
+  } else {
+    root.style.removeProperty(SAFE_BOTTOM_VAR)
+  }
+}
+
+let raf = 0
+function scheduleSync() {
+  cancelAnimationFrame(raf)
+  raf = requestAnimationFrame(() => {
+    syncKeyboardLayout()
+  })
+}
+
+/** 전송·포커스 직후 iOS visualViewport 정렬이 늦을 때 수동 동기화 */
+export function syncOpenchatKeyboardLayout(opts?: { absorbOffsetTop?: boolean }) {
+  if (opts?.absorbOffsetTop && isMobileViewport()) {
+    const vv = window.visualViewport
+    if (vv && vv.offsetTop > 0 && vv.height < window.innerHeight * 0.85) {
+      window.scrollTo(0, window.scrollY + vv.offsetTop)
+    }
+  }
+  scheduleSync()
+  requestAnimationFrame(scheduleSync)
+}
+
+/**
+ * 모바일: `position:fixed` 입력창을 visualViewport 하단에 맞춤.
+ * 하단 툴바가 접히면 inset 이 음수가 되어 입력창이 함께 내려갑니다.
  */
 export function useOpenchatKeyboardOffset(active = true) {
   useEffect(() => {
     if (!active || typeof window === 'undefined') return
 
-    const setOffset = (px: number) => {
-      document.documentElement.style.setProperty(KEYBOARD_OFFSET_VAR, `${Math.round(px)}px`)
-    }
-
-    if (viewportUsesResizesContent()) {
-      setOffset(0)
-      return () => document.documentElement.style.removeProperty(KEYBOARD_OFFSET_VAR)
-    }
+    scheduleSync()
 
     const vv = window.visualViewport
-    if (!vv) {
-      setOffset(0)
-      return () => document.documentElement.style.removeProperty(KEYBOARD_OFFSET_VAR)
-    }
+    vv?.addEventListener('resize', scheduleSync)
+    vv?.addEventListener('scroll', scheduleSync)
+    window.addEventListener('resize', scheduleSync)
+    window.addEventListener('scroll', scheduleSync, { passive: true })
+    window.addEventListener('orientationchange', scheduleSync)
 
-    let raf = 0
-
-    const sync = () => {
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        const gap = window.innerHeight - vv.height
-        const layoutAlreadyResized = gap < 48
-        const offset = layoutAlreadyResized ? 0 : Math.max(0, gap - Math.max(0, vv.offsetTop))
-        setOffset(offset)
-      })
-    }
-
-    sync()
-    vv.addEventListener('resize', sync)
-    window.addEventListener('orientationchange', sync)
+    const mq = window.matchMedia('(max-width: 767px)')
+    const onMq = () => scheduleSync()
+    mq.addEventListener('change', onMq)
 
     return () => {
       cancelAnimationFrame(raf)
-      vv.removeEventListener('resize', sync)
-      window.removeEventListener('orientationchange', sync)
+      vv?.removeEventListener('resize', scheduleSync)
+      vv?.removeEventListener('scroll', scheduleSync)
+      window.removeEventListener('resize', scheduleSync)
+      window.removeEventListener('scroll', scheduleSync)
+      window.removeEventListener('orientationchange', scheduleSync)
+      mq.removeEventListener('change', onMq)
       document.documentElement.style.removeProperty(KEYBOARD_OFFSET_VAR)
+      document.documentElement.style.removeProperty(SAFE_BOTTOM_VAR)
     }
   }, [active])
 }

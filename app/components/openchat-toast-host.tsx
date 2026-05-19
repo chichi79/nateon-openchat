@@ -20,7 +20,7 @@ export function OpenchatToastHost({ className }: OpenchatToastHostProps) {
     <div
       className={clsx(
         'pointer-events-none fixed inset-x-0 z-[45] flex flex-col items-center gap-2 px-4',
-        'bottom-[calc(var(--openchat-keyboard-offset,0px)+var(--openchat-compose-h,5.25rem)+var(--openchat-compose-gap,0.5rem)+0.75rem+env(safe-area-inset-bottom,0px))]',
+        'bottom-[calc(var(--openchat-keyboard-offset,0px)+var(--openchat-compose-h,5.25rem)+var(--openchat-compose-gap,0.5rem)+0.75rem+var(--openchat-safe-bottom,env(safe-area-inset-bottom,0px)))]',
         className,
       )}
       aria-live='polite'

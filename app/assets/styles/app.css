@@ -37,6 +37,7 @@
   --openchat-fab-stack-gap: 0.5rem;
   --openchat-fab-offset-down: 50px;
   --openchat-keyboard-offset: 0px;
+  --openchat-safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 html[data-theme="light"] {
@@ -297,29 +298,27 @@ textarea.input {
 @media (max-width: 767px) {
   .input,
   textarea.input,
-  select.input,
-  .openchat-compose-input,
-  .openchat-compose-nickname-input {
+  select.input {
     font-size: 1rem;
   }
 }
 
 /* 채팅 입력창·FAB: 키보드·safe-area 기준 하단 */
 .openchat-compose-dock {
-  bottom: calc(var(--openchat-keyboard-offset, 0px) + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--openchat-keyboard-offset, 0px) + var(--openchat-safe-bottom, env(safe-area-inset-bottom, 0px)));
 }
 /* TOP FAB: 입력창 위 */
 .openchat-fab-above-compose {
   bottom: calc(
     var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-compose-gap, 0.5rem) +
-      var(--openchat-fab-h, 3rem) + var(--openchat-fab-stack-gap, 0.5rem) + env(safe-area-inset-bottom, 0px) -
+      var(--openchat-fab-h, 3rem) + var(--openchat-fab-stack-gap, 0.5rem) + var(--openchat-safe-bottom, env(safe-area-inset-bottom, 0px)) -
       var(--openchat-fab-offset-down, 0px)
   );
 }
 .openchat-banner-above-compose {
   bottom: calc(
     var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-compose-gap, 0.5rem) +
-      env(safe-area-inset-bottom, 0px)
+      var(--openchat-safe-bottom, env(safe-area-inset-bottom, 0px))
   );
 }
 
@@ -729,10 +728,16 @@ html[data-theme='dark'] .openchat-compose-box {
   border: 0;
   background: transparent;
   padding: 0.75rem 1rem;
-  font-size: 0.9375rem;
+  /* iOS: 16px 미만이면 포커스 시 자동 확대 — 모바일 기본 1rem, PC만 축소 */
+  font-size: 1rem;
   line-height: 1.45;
   color: #191f28;
   outline: none;
+}
+@media (min-width: 768px) {
+  .openchat-compose-input {
+    font-size: 0.9375rem;
+  }
 }
 html[data-theme='dark'] .openchat-compose-input {
   color: #e7ebf3;
@@ -855,9 +860,14 @@ html[data-theme='dark'] .openchat-compose-nickname-label {
   padding: 0 0.25rem;
   border: 0;
   background: transparent;
-  font-size: 0.75rem;
+  font-size: 1rem;
   line-height: 1.25;
   box-shadow: none;
+}
+@media (min-width: 768px) {
+  .openchat-compose-nickname-input {
+    font-size: 0.75rem;
+  }
 }
 .openchat-compose-nickname-input:focus {
   outline: none;
@@ -1080,7 +1090,7 @@ html[data-theme='dark'] .openchat-emoji-picker-body {
   background: rgba(74, 79, 89, 0.7);
   padding: 0.625rem 1rem;
   bottom: calc(
-    var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + env(safe-area-inset-bottom, 0px)
+    var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-safe-bottom, env(safe-area-inset-bottom, 0px))
   );
   box-shadow: 0 -4px 16px -6px rgba(15, 23, 42, 0.15);
   pointer-events: auto;
@@ -1301,7 +1311,7 @@ html[data-theme='dark'] .openchat-message-reaction-picker-btn--active {
   right: 0;
   bottom: calc(
     var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-compose-gap, 0.5rem) +
-      env(safe-area-inset-bottom, 0px)
+      var(--openchat-safe-bottom, env(safe-area-inset-bottom, 0px))
   );
   left: 0;
   display: flex;
