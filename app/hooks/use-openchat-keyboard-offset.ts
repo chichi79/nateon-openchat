@@ -19,6 +19,14 @@ function isComposeFocused() {
   return el instanceof HTMLElement && Boolean(el.closest('.openchat-compose-dock'))
 }
 
+function visualBottomPx(vv: VisualViewport, keyboardLikely: boolean) {
+  const layoutH = window.innerHeight
+  const vvBottom = vv.offsetTop + vv.height
+  // 키보드 열림(resizes-content): layout 높이가 곧 보이는 하단 — 전송 후 scroll 로 offsetTop 만 커져 입력창이 위로 뜨는 것 방지
+  if (keyboardLikely) return layoutH
+  return Math.max(layoutH, vvBottom)
+}
+
 function syncKeyboardLayout() {
   if (typeof window === 'undefined') return
 
@@ -42,7 +50,7 @@ function syncKeyboardLayout() {
   const composeH = getComposeHeightPx()
   const focused = isComposeFocused()
   const keyboardLikely = vv.height < window.innerHeight * 0.85 || focused
-  const visualBottom = vv.offsetTop + vv.height
+  const visualBottom = visualBottomPx(vv, keyboardLikely)
   const top = Math.round(visualBottom - composeH)
 
   root.style.setProperty(COMPOSE_TOP_VAR, `${top}px`)
@@ -63,7 +71,7 @@ function scheduleSync() {
   })
 }
 
-/** 전송·포커스 직후 visualViewport 정렬이 늦을 때 수동 동기화 */
+/** 전송·포커스·스크롤 직후 visualViewport 정렬이 늦을 때 수동 동기화 */
 export function syncOpenchatKeyboardLayout() {
   scheduleSync()
   requestAnimationFrame(scheduleSync)

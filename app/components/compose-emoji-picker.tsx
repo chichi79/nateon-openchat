@@ -1,15 +1,14 @@
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { OPENCHAT_STICKER_GROUPS } from '@/lib/openchat-stickers'
 
 type ComposeEmojiPickerProps = {
   disabled?: boolean
-  layerTargetRef: RefObject<HTMLElement | null>
   onSelect: (emoji: string) => void
 }
 
-export function ComposeEmojiPicker({ disabled, layerTargetRef, onSelect }: ComposeEmojiPickerProps) {
+export function ComposeEmojiPicker({ disabled, onSelect }: ComposeEmojiPickerProps) {
   const [open, setOpen] = useState(false)
   const [activeGroup, setActiveGroup] = useState(0)
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -37,6 +36,13 @@ export function ComposeEmojiPicker({ disabled, layerTargetRef, onSelect }: Compo
   }, [open])
 
   useEffect(() => {
+    const root = document.documentElement
+    if (open) root.setAttribute('data-openchat-emoji-open', '')
+    else root.removeAttribute('data-openchat-emoji-open')
+    return () => root.removeAttribute('data-openchat-emoji-open')
+  }, [open])
+
+  useEffect(() => {
     if (!disabled) return
     setOpen(false)
   }, [disabled])
@@ -53,9 +59,8 @@ export function ComposeEmojiPicker({ disabled, layerTargetRef, onSelect }: Compo
   }
 
   const group = OPENCHAT_STICKER_GROUPS[activeGroup]!
-  const layerHost = open ? layerTargetRef.current : null
   const layer =
-    open && layerHost ? (
+    open && typeof document !== 'undefined' ? (
       <div
         ref={layerRef}
         className='openchat-emoji-layer'
@@ -142,7 +147,7 @@ export function ComposeEmojiPicker({ disabled, layerTargetRef, onSelect }: Compo
           <circle cx='15' cy='10' r='1' fill='currentColor' stroke='none' />
         </svg>
       </button>
-      {layer && layerHost ? createPortal(layer, layerHost) : null}
+      {layer ? createPortal(layer, document.body) : null}
     </div>
   )
 }

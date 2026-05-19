@@ -260,7 +260,6 @@ export default function RoomDetailPage() {
   const formRef = useRef<HTMLFormElement | null>(null)
   const composeBarRef = useRef<HTMLDivElement | null>(null)
   const roomStickyHeadRef = useRef<HTMLDivElement | null>(null)
-  const chatPanelRef = useRef<HTMLDivElement | null>(null)
   const composeTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const isAtBottomRef = useRef(true)
   const showScrollTopFabRef = useRef(false)
@@ -1158,15 +1157,17 @@ export default function RoomDetailPage() {
     const focusCompose = () => composeTextareaRef.current?.focus({ preventScroll: true })
 
     const tick = () => {
-      scrollToBottom('auto')
       focusCompose()
       syncOpenchatKeyboardLayout()
+      scrollToBottom('auto')
+      requestAnimationFrame(() => syncOpenchatKeyboardLayout())
     }
 
     tick()
     requestAnimationFrame(tick)
-    window.setTimeout(tick, 60)
-    window.setTimeout(tick, 160)
+    window.setTimeout(tick, 50)
+    window.setTimeout(tick, 120)
+    window.setTimeout(tick, 280)
   }, [scrollToBottom])
 
   const scrollToQuotedMessage = useCallback((messageId: string) => {
@@ -1190,6 +1191,7 @@ export default function RoomDetailPage() {
     const sync = () => {
       const h = el.getBoundingClientRect().height
       document.documentElement.style.setProperty('--openchat-compose-h', `${Math.round(h * 1000) / 1000}px`)
+      if (window.matchMedia('(max-width: 767px)').matches) syncOpenchatKeyboardLayout()
     }
 
     sync()
@@ -1309,7 +1311,10 @@ export default function RoomDetailPage() {
       if (suppressNextNewMsgBadgeRef.current) {
         suppressNextNewMsgBadgeRef.current = false
         if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
-          requestAnimationFrame(() => scrollToBottom('auto'))
+          requestAnimationFrame(() => {
+            scrollToBottom('auto')
+            syncOpenchatKeyboardLayout()
+          })
         }
         return
       }
@@ -1862,7 +1867,7 @@ export default function RoomDetailPage() {
         </div>
       ) : null}
 
-      <div ref={chatPanelRef} className='openchat-chat-panel relative min-w-0 overflow-hidden'>
+      <div className='openchat-chat-panel relative min-w-0 overflow-hidden'>
         {!canViewChatHistory && room.policy !== 'open_link' ? (
           <div className='border-b border-slate-200 dark:border-white/5 bg-slate-100 dark:bg-black/20 px-4 py-6 text-center text-sm text-slate-600 dark:text-zinc-400'>
             입장(초대코드 또는 방장 승인) 후에 대화 내용을 볼 수 있어요.
@@ -2444,7 +2449,7 @@ export default function RoomDetailPage() {
                       </svg>
                       <input type='file' className='hidden' multiple disabled={!canPost} onChange={(e) => void handleFiles(e.target.files)} />
                     </label>
-                    <ComposeEmojiPicker disabled={!canPost} layerTargetRef={chatPanelRef} onSelect={selectSticker} />
+                    <ComposeEmojiPicker disabled={!canPost} onSelect={selectSticker} />
                   </div>
 
                   <div

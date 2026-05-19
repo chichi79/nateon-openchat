@@ -944,11 +944,16 @@ html[data-theme='dark'] .openchat-compose-toolbar {
   border-top-color: rgba(255, 255, 255, 0.08);
 }
 
-/* 채팅 패널 위 이모지 선택 레이어 (불투명도 80%) */
+/* 이모지 선택 레이어 — body 포털 + fixed (방 제목·채팅 위, 입력창 아래) */
 .openchat-emoji-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 25;
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--app-header-h);
+  bottom: calc(
+    var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-safe-bottom, env(safe-area-inset-bottom, 0px))
+  );
+  z-index: 39;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -956,6 +961,20 @@ html[data-theme='dark'] .openchat-compose-toolbar {
   padding-bottom: 0.375rem;
   pointer-events: auto;
 }
+
+@media (max-width: 767px) {
+  .openchat-emoji-layer {
+    bottom: auto;
+    height: max(0px, calc(var(--openchat-compose-top, 100dvh) - var(--app-header-h)));
+  }
+}
+
+html[data-openchat-emoji-open] .openchat-room-sticky-stack,
+html[data-openchat-emoji-open] .openchat-room-sticky-stack-spacer {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .openchat-emoji-layer-scrim {
   position: absolute;
   inset: 0;
