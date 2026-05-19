@@ -1416,6 +1416,61 @@ html[data-theme='dark'] .openchat-moderator-panel {
 
 /* iOS: 모바일 sticky 이중 합성·blur 로 스크롤 시 방 제목 영역 떨림 → fixed + spacer */
 @media (max-width: 767px) {
+  html.openchat-mobile-room-chat,
+  html.openchat-mobile-room-chat body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  html.openchat-mobile-room-chat main {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--app-header-h));
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  html.openchat-mobile-room-chat .openchat-room-layout {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  html.openchat-mobile-room-chat .openchat-room-split {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    gap: 0;
+  }
+
+  html.openchat-mobile-room-chat .openchat-room-chat-column {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    gap: 0;
+  }
+
+  html.openchat-mobile-room-chat .openchat-chat-panel {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  html.openchat-mobile-room-chat .openchat-chat-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .openchat-room-layout .openchat-room-sticky-stack {
     position: fixed;
     left: 0;
@@ -1437,6 +1492,15 @@ html[data-theme='dark'] .openchat-moderator-panel {
 
   html[data-theme='dark'] .openchat-compose-dock {
     background: rgb(8 9 15);
+  }
+}
+
+@media (min-width: 768px) {
+  .openchat-chat-scroll {
+    display: block;
+    flex: none;
+    overflow: visible;
+    height: auto;
   }
 }
 

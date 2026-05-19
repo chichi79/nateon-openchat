@@ -1,12 +1,10 @@
 import { useLayoutEffect } from 'react'
 
+import { isOpenchatMobileChatViewport } from '@/lib/openchat-mobile-chat'
+
 const KEYBOARD_OFFSET_VAR = '--openchat-keyboard-offset'
 const COMPOSE_TOP_VAR = '--openchat-compose-top'
 const SAFE_BOTTOM_VAR = '--openchat-safe-bottom'
-
-function isMobileViewport() {
-  return typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
-}
 
 function getComposeHeightPx() {
   const raw = getComputedStyle(document.documentElement).getPropertyValue('--openchat-compose-h').trim()
@@ -19,20 +17,12 @@ function isComposeFocused() {
   return el instanceof HTMLElement && Boolean(el.closest('.openchat-compose-dock'))
 }
 
-function visualBottomPx(vv: VisualViewport, keyboardLikely: boolean) {
-  const layoutH = window.innerHeight
-  const vvBottom = vv.offsetTop + vv.height
-  // 키보드 열림(resizes-content): layout 높이가 곧 보이는 하단 — 전송 후 scroll 로 offsetTop 만 커져 입력창이 위로 뜨는 것 방지
-  if (keyboardLikely) return layoutH
-  return Math.max(layoutH, vvBottom)
-}
-
 function syncKeyboardLayout() {
   if (typeof window === 'undefined') return
 
   const root = document.documentElement
 
-  if (!isMobileViewport()) {
+  if (!isOpenchatMobileChatViewport()) {
     root.style.setProperty(KEYBOARD_OFFSET_VAR, '0px')
     root.style.removeProperty(COMPOSE_TOP_VAR)
     root.style.removeProperty(SAFE_BOTTOM_VAR)
@@ -50,7 +40,7 @@ function syncKeyboardLayout() {
   const composeH = getComposeHeightPx()
   const focused = isComposeFocused()
   const keyboardLikely = vv.height < window.innerHeight * 0.85 || focused
-  const visualBottom = visualBottomPx(vv, keyboardLikely)
+  const visualBottom = vv.offsetTop + vv.height
   const top = Math.round(visualBottom - composeH)
 
   root.style.setProperty(COMPOSE_TOP_VAR, `${top}px`)
@@ -71,14 +61,15 @@ function scheduleSync() {
   })
 }
 
-/** 전송·포커스·스크롤 직후 visualViewport 정렬이 늦을 때 수동 동기화 */
+/** 전송·포커스 직후 visualViewport 정렬이 늦을 때 수동 동기화 */
 export function syncOpenchatKeyboardLayout() {
   scheduleSync()
   requestAnimationFrame(scheduleSync)
+  window.setTimeout(scheduleSync, 50)
 }
 
 /**
- * 모바일: 입력창을 visualViewport 하단에 `top` 으로 고정 (iOS fixed+bottom 버그 회피).
+ * 모바일: 입력창을 visualViewport 하단(`offsetTop + height`)에 `top` 으로 고정.
  */
 export function useOpenchatKeyboardOffset(active = true) {
   useLayoutEffect(() => {
@@ -90,7 +81,6 @@ export function useOpenchatKeyboardOffset(active = true) {
     vv?.addEventListener('resize', scheduleSync)
     vv?.addEventListener('scroll', scheduleSync)
     window.addEventListener('resize', scheduleSync)
-    window.addEventListener('scroll', scheduleSync, { passive: true })
     window.addEventListener('orientationchange', scheduleSync)
     document.addEventListener('focusin', scheduleSync)
     document.addEventListener('focusout', scheduleSync)
@@ -104,7 +94,6 @@ export function useOpenchatKeyboardOffset(active = true) {
       vv?.removeEventListener('resize', scheduleSync)
       vv?.removeEventListener('scroll', scheduleSync)
       window.removeEventListener('resize', scheduleSync)
-      window.removeEventListener('scroll', scheduleSync)
       window.removeEventListener('orientationchange', scheduleSync)
       document.removeEventListener('focusin', scheduleSync)
       document.removeEventListener('focusout', scheduleSync)

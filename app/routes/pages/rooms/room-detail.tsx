@@ -87,6 +87,7 @@ import {
 import { subscribeRoomMessages } from '@/services/openchat-firestore.service'
 import { useFocusTrap } from '@/hooks/use-focus-trap'
 import { syncOpenchatKeyboardLayout, useOpenchatKeyboardOffset } from '@/hooks/use-openchat-keyboard-offset'
+import { isOpenchatMobileChatViewport } from '@/lib/openchat-mobile-chat'
 import { OpenchatToastHost } from '@/components/openchat-toast-host'
 import { RouteErrorFallback } from '@/components/route-error-fallback'
 import { OPENCHAT_MOCK_DB_STORAGE_KEY } from '@/mocks/install-mock-fetch'
@@ -258,6 +259,7 @@ export default function RoomDetailPage() {
   const [displayNamesByClientId, setDisplayNamesByClientId] = useState<Record<string, string>>({})
   const myClientId = ensureOpenchatClientId()
   const formRef = useRef<HTMLFormElement | null>(null)
+  const chatScrollRef = useRef<HTMLDivElement | null>(null)
   const composeBarRef = useRef<HTMLDivElement | null>(null)
   const roomStickyHeadRef = useRef<HTMLDivElement | null>(null)
   const composeTextareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -363,6 +365,20 @@ export default function RoomDetailPage() {
 
   const policyChip = policyChipFor(room.policy)
   useOpenchatKeyboardOffset(true)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const apply = () => {
+      if (mq.matches) document.documentElement.classList.add('openchat-mobile-room-chat')
+      else document.documentElement.classList.remove('openchat-mobile-room-chat')
+    }
+    apply()
+    mq.addEventListener('change', apply)
+    return () => {
+      mq.removeEventListener('change', apply)
+      document.documentElement.classList.remove('openchat-mobile-room-chat')
+    }
+  }, [])
   const firestoreLive = useOpenchatFirestore()
   const mockApiEnvOn = !isViteEnvFalse(import.meta.env.VITE_ENABLE_MOCK_API)
   const showMockStorageNotice = !firestoreLive && mockApiEnvOn
@@ -1143,32 +1159,51 @@ export default function RoomDetailPage() {
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     requestAnimationFrame(() => {
-      const doc = document.documentElement
-      window.scrollTo({ top: doc.scrollHeight, left: 0, behavior })
+      const chatScroll = chatScrollRef.current
+      if (isOpenchatMobileChatViewport() && chatScroll) {
+        chatScroll.scrollTo({ top: chatScroll.scrollHeight, behavior })
+      } else {
+        const doc = document.documentElement
+        window.scrollTo({ top: doc.scrollHeight, left: 0, behavior })
+      }
       isAtBottomRef.current = true
       setIsAtBottom(true)
       setNewMsgCount(0)
     })
   }, [])
 
+  const scrollToTop = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const chatScroll = chatScrollRef.current
+    if (isOpenchatMobileChatViewport() && chatScroll) {
+      chatScroll.scrollTo({ top: 0, behavior })
+    } else {
+      window.scrollTo({ top: 0, behavior })
+    }
+  }, [])
+
   const maintainMobileComposeAfterSend = useCallback(() => {
-    if (typeof window === 'undefined' || !window.matchMedia('(max-width: 767px)').matches) return
+    if (!isOpenchatMobileChatViewport()) return
 
     const focusCompose = () => composeTextareaRef.current?.focus({ preventScroll: true })
 
     const tick = () => {
       focusCompose()
       syncOpenchatKeyboardLayout()
-      scrollToBottom('auto')
-      requestAnimationFrame(() => syncOpenchatKeyboardLayout())
+      const chatScroll = chatScrollRef.current
+      if (chatScroll) {
+        chatScroll.scrollTop = chatScroll.scrollHeight
+        isAtBottomRef.current = true
+        setIsAtBottom(true)
+        setNewMsgCount(0)
+      }
     }
 
     tick()
     requestAnimationFrame(tick)
     window.setTimeout(tick, 50)
-    window.setTimeout(tick, 120)
-    window.setTimeout(tick, 280)
-  }, [scrollToBottom])
+    window.setTimeout(tick, 150)
+    window.setTimeout(tick, 300)
+  }, [])
 
   const scrollToQuotedMessage = useCallback((messageId: string) => {
     requestAnimationFrame(() => {
@@ -1229,6 +1264,35 @@ export default function RoomDetailPage() {
     const directionThreshold = 6
 
     const onScroll = () => {
+      const chatScroll = isOpenchatMobileChatViewport() ? chatScrollRef.current : null
+
+      if (chatScroll) {
+        const y = chatScroll.scrollTop
+        const delta = y - lastScrollYRef.current
+        lastScrollYRef.current = y
+
+        const atBottom = chatScroll.scrollHeight - y - chatScroll.clientHeight <= bottomThreshold
+        if (isAtBottomRef.current !== atBottom) {
+          isAtBottomRef.current = atBottom
+          setIsAtBottom(atBottom)
+          if (atBottom) setNewMsgCount(0)
+        }
+
+        let nextFab = showScrollTopFabRef.current
+        if (y <= topThreshold || atBottom) {
+          nextFab = false
+        } else if (delta < -directionThreshold) {
+          nextFab = true
+        } else if (delta > directionThreshold) {
+          nextFab = false
+        }
+        if (showScrollTopFabRef.current !== nextFab) {
+          showScrollTopFabRef.current = nextFab
+          setShowScrollTopFab(nextFab)
+        }
+        return
+      }
+
       const doc = document.documentElement
       const y = window.scrollY
       const delta = y - lastScrollYRef.current
@@ -1256,15 +1320,39 @@ export default function RoomDetailPage() {
       }
     }
 
-    lastScrollYRef.current = window.scrollY
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    window.addEventListener('resize', onScroll, { passive: true })
-    return () => {
-      window.removeEventListener('scroll', onScroll)
-      window.removeEventListener('resize', onScroll)
+    let removeListeners: (() => void) | undefined
+
+    const bind = () => {
+      removeListeners?.()
+      const chatScroll = isOpenchatMobileChatViewport() ? chatScrollRef.current : null
+      lastScrollYRef.current = chatScroll?.scrollTop ?? window.scrollY
+      onScroll()
+
+      if (chatScroll) {
+        chatScroll.addEventListener('scroll', onScroll, { passive: true })
+        removeListeners = () => chatScroll.removeEventListener('scroll', onScroll)
+        return
+      }
+
+      window.addEventListener('scroll', onScroll, { passive: true })
+      window.addEventListener('resize', onScroll, { passive: true })
+      removeListeners = () => {
+        window.removeEventListener('scroll', onScroll)
+        window.removeEventListener('resize', onScroll)
+      }
     }
-  }, [])
+
+    bind()
+    const raf = requestAnimationFrame(bind)
+    const mq = window.matchMedia('(max-width: 767px)')
+    mq.addEventListener('change', bind)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      mq.removeEventListener('change', bind)
+      removeListeners?.()
+    }
+  }, [canViewChatHistory, sortedMessages.length])
 
   useLayoutEffect(() => {
     if (!replyTo) return
@@ -1873,6 +1961,7 @@ export default function RoomDetailPage() {
             입장(초대코드 또는 방장 승인) 후에 대화 내용을 볼 수 있어요.
           </div>
         ) : null}
+        <div ref={chatScrollRef} className='openchat-chat-scroll'>
         <ul
           className={[
             'relative space-y-4 overflow-x-clip px-4 pt-4 sm:px-5',
@@ -2173,6 +2262,7 @@ export default function RoomDetailPage() {
           ) : null}
           <li aria-hidden className='pointer-events-none h-0 shrink-0 list-none' />
         </ul>
+        </div>
 
         {selectedSticker && canPost ? (
           <div className='openchat-chat-sticker-preview' role='region' aria-label='선택한 이모티콘'>
@@ -2216,7 +2306,7 @@ export default function RoomDetailPage() {
             ? 'pointer-events-auto visible translate-y-0 opacity-100'
             : 'pointer-events-none invisible translate-y-2 opacity-0',
         ].join(' ')}
-        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        onClick={() => scrollToTop('smooth')}
         aria-label='맨 위로'
         aria-hidden={!showScrollTopFab}
         tabIndex={showScrollTopFab ? 0 : -1}
