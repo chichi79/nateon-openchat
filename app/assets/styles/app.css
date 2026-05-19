@@ -32,13 +32,10 @@
   /* 채팅 입력창 실측 높이 — room-detail에서 ResizeObserver로 덮어씀 */
   --openchat-compose-h: 5.25rem;
   --openchat-compose-gap: 0.5rem;
-  /* room-detail 우측 FAB 스택(아래→위: 입력창 · 테마 · TOP, 각 2.5rem) */
+  /* room-detail TOP FAB (입력창 위) */
   --openchat-fab-h: 2.5rem;
-  --openchat-top-fab-h: 2.5rem;
   --openchat-fab-stack-gap: 0.5rem;
-  --openchat-fab-pair-gap: 0.25rem;
   --openchat-fab-offset-down: 50px;
-  --openchat-top-fab-offset-down: 10px;
   --openchat-keyboard-offset: 0px;
 }
 
@@ -309,21 +306,12 @@ textarea.input {
 .openchat-compose-dock {
   bottom: calc(var(--openchat-keyboard-offset, 0px) + env(safe-area-inset-bottom, 0px));
 }
-/* 테마 FAB: 입력창(전송 버튼) 위 한 칸 */
-.openchat-fab-above-theme {
+/* TOP FAB: 입력창 위 */
+.openchat-fab-above-compose {
   bottom: calc(
     var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-compose-gap, 0.5rem) +
       var(--openchat-fab-h, 3rem) + var(--openchat-fab-stack-gap, 0.5rem) + env(safe-area-inset-bottom, 0px) -
       var(--openchat-fab-offset-down, 0px)
-  );
-}
-/* TOP FAB: 테마 버튼 위 */
-.openchat-fab-above-top {
-  bottom: calc(
-    var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-compose-gap, 0.5rem) +
-      var(--openchat-fab-h, 3rem) + var(--openchat-fab-stack-gap, 0.5rem) + var(--openchat-top-fab-h, 3rem) +
-      var(--openchat-fab-pair-gap, 0.25rem) + env(safe-area-inset-bottom, 0px) - var(--openchat-fab-offset-down, 0px) -
-      var(--openchat-top-fab-offset-down, 0px)
   );
 }
 .openchat-banner-above-compose {
@@ -331,6 +319,966 @@ textarea.input {
     var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-compose-gap, 0.5rem) +
       env(safe-area-inset-bottom, 0px)
   );
+}
+
+/* PC(≥1024px): 채팅 열(1024px) 안에 TOP FAB 정렬 */
+@media (min-width: 1024px) {
+  .openchat-fab-above-compose {
+    right: max(1.25rem, calc((100vw - 1024px) / 2 + 1.25rem));
+  }
+
+  .openchat-room-layout {
+    --openchat-sidebar-w: 17rem;
+  }
+
+  .openchat-room-layout .openchat-compose-dock {
+    left: max(0px, calc((100vw - 1024px) / 2 + var(--openchat-sidebar-w)));
+    right: max(0px, calc((100vw - 1024px) / 2));
+    width: auto;
+  }
+
+  .openchat-room-layout .openchat-compose-dock-inner {
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .openchat-room-layout .openchat-chat-sticker-preview {
+    left: max(0px, calc((100vw - 1024px) / 2 + var(--openchat-sidebar-w)));
+    right: max(0px, calc((100vw - 1024px) / 2));
+  }
+
+  .openchat-room-layout .openchat-chat-sticker-preview-inner {
+    max-width: none;
+  }
+
+  .openchat-room-layout .openchat-fab-above-compose {
+    right: max(1.25rem, calc((100vw - 1024px) / 2 + 1.25rem));
+  }
+
+  /* PC: 좌측 참여 방 메뉴 뷰포트 고정, 우측만 스크롤 */
+  .openchat-room-layout .openchat-room-split {
+    display: block;
+  }
+
+  .openchat-room-layout .openchat-room-chat-column {
+    margin-left: var(--openchat-sidebar-w);
+    width: auto;
+  }
+
+  .openchat-room-layout .openchat-participation-sidebar:not(.openchat-participation-sidebar--drawer) {
+    position: fixed;
+    left: max(0px, calc((100vw - 1024px) / 2));
+    top: var(--app-header-h);
+    z-index: 25;
+  }
+}
+
+/* 참여 방 사이드바·드로어 공통 (PC + 모바일) */
+.openchat-participation-sidebar-head {
+  flex-shrink: 0;
+  padding: 1rem 1rem 0.75rem;
+  border-bottom: 1px solid #eceff4;
+}
+
+html[data-theme='dark'] .openchat-participation-sidebar-head {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.openchat-participation-sidebar-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #191f28;
+}
+
+html[data-theme='dark'] .openchat-participation-sidebar-title {
+  color: #f3f4f6;
+}
+
+.openchat-participation-sidebar-sub {
+  margin-top: 0.2rem;
+  font-size: 0.6875rem;
+  color: #949ba4;
+}
+
+.openchat-participation-sidebar-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.35rem 0.5rem;
+}
+
+.openchat-participation-sidebar-empty {
+  padding: 1.25rem 0.75rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: #949ba4;
+}
+
+.openchat-participation-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border-radius: 0.75rem;
+  padding: 0.55rem 0.65rem;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.openchat-participation-sidebar-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.openchat-participation-sidebar-item--active {
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+html[data-theme='dark'] .openchat-participation-sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme='dark'] .openchat-participation-sidebar-item--active {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+.openchat-participation-sidebar-avatar {
+  display: inline-flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #fff;
+  box-shadow: 0 2px 8px -4px rgba(0, 0, 0, 0.35);
+}
+
+.openchat-participation-sidebar-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #191f28;
+}
+
+html[data-theme='dark'] .openchat-participation-sidebar-name {
+  color: #f3f4f6;
+}
+
+.openchat-participation-sidebar-room {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 0.1rem;
+  font-size: 0.75rem;
+  color: #949ba4;
+}
+
+.openchat-participation-sidebar-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: #fff3e8;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #e67e22;
+}
+
+  html[data-theme='dark'] .openchat-participation-sidebar-badge {
+    background: rgba(230, 126, 34, 0.15);
+    color: #f5b041;
+  }
+
+.openchat-participation-sidebar-badge--pending {
+  background: #fff3e8;
+  color: #e67e22;
+}
+
+html[data-theme='dark'] .openchat-participation-sidebar-badge--pending {
+  background: rgba(230, 126, 34, 0.15);
+  color: #f5b041;
+}
+
+.openchat-participation-sidebar-badge--owner {
+  background: #eef4ff;
+  color: #3d6fcc;
+}
+
+html[data-theme='dark'] .openchat-participation-sidebar-badge--owner {
+  background: rgba(92, 135, 255, 0.2);
+  color: #9eb8ff;
+}
+
+.openchat-participation-sidebar-badge--manager {
+  background: #f0ebff;
+  color: #6b4fcc;
+}
+
+html[data-theme='dark'] .openchat-participation-sidebar-badge--manager {
+  background: rgba(122, 85, 230, 0.2);
+  color: #c4b5fd;
+}
+
+.openchat-participation-sidebar-foot {
+  flex-shrink: 0;
+  border-top: 1px solid #eceff4;
+  padding: 0.65rem 1rem 0.85rem;
+}
+
+html[data-theme='dark'] .openchat-participation-sidebar-foot {
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+
+.openchat-participation-sidebar-foot-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #6a7484;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.openchat-participation-sidebar-foot-link:hover {
+  color: #191f28;
+}
+
+html[data-theme='dark'] .openchat-participation-sidebar-foot-link:hover {
+  color: #e7ebf3;
+}
+
+/* PC: 인라인 사이드바만 표시 */
+.openchat-participation-sidebar:not(.openchat-participation-sidebar--drawer) {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .openchat-participation-sidebar:not(.openchat-participation-sidebar--drawer) {
+    display: flex;
+    flex-direction: column;
+    width: var(--openchat-sidebar-w, 17rem);
+    height: calc(100dvh - var(--app-header-h));
+    max-height: calc(100dvh - var(--app-header-h));
+    overflow: hidden;
+    border-right: 1px solid #e5e8ed;
+    background: #f7f8fa;
+  }
+
+  html[data-theme='dark'] .openchat-participation-sidebar:not(.openchat-participation-sidebar--drawer) {
+    border-right-color: rgba(255, 255, 255, 0.08);
+    background: #12141c;
+  }
+}
+
+/* 모바일: 참여 방 드로어 */
+.openchat-participation-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 48;
+  display: flex;
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+html[data-theme='dark'] .openchat-participation-drawer {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.openchat-participation-drawer-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(18rem, 88vw);
+  max-width: 18rem;
+  height: 100%;
+  overflow: hidden;
+  border-right: 1px solid #e5e8ed;
+  background: #f7f8fa;
+  box-shadow: 4px 0 24px -8px rgba(15, 23, 42, 0.2);
+  animation: openchat-participation-drawer-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+html[data-theme='dark'] .openchat-participation-drawer-panel {
+  border-right-color: rgba(255, 255, 255, 0.08);
+  background: #12141c;
+  box-shadow: 4px 0 28px -8px rgba(0, 0, 0, 0.5);
+}
+
+.openchat-participation-sidebar--drawer {
+  position: static;
+  top: auto;
+  display: flex !important;
+  flex-direction: column;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.openchat-participation-drawer-close {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #949ba4;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.openchat-participation-drawer-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #191f28;
+}
+
+html[data-theme='dark'] .openchat-participation-drawer-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f3f4f6;
+}
+
+@keyframes openchat-participation-drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (min-width: 1024px) {
+  .openchat-participation-drawer {
+    display: none;
+  }
+}
+
+/* 카카오톡 스타일 채팅 패널 */
+.openchat-chat-panel {
+  background-color: #eceff4;
+}
+html[data-theme='dark'] .openchat-chat-panel {
+  background-color: #12141c;
+}
+
+.openchat-bubble-other {
+  border-radius: 1rem;
+  border-top-left-radius: 0.25rem;
+  background: #fff;
+  color: #191f28;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+html[data-theme='dark'] .openchat-bubble-other {
+  background: #2a2d36;
+  color: #e7ebf3;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.openchat-bubble-mine {
+  border-radius: 1rem;
+  border-top-right-radius: 0.25rem;
+  background: #d6e9f9;
+  color: #191f28;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+html[data-theme='dark'] .openchat-bubble-mine {
+  background: #2d4a66;
+  color: #f0f4fa;
+}
+
+.openchat-compose-mention-wrap {
+  overflow: visible;
+}
+
+.openchat-compose-dock-inner {
+  overflow: visible;
+}
+
+.openchat-compose-box {
+  border: 1px solid #e5e8ed;
+  border-radius: 0.75rem;
+  background: #fff;
+  overflow: hidden;
+}
+html[data-theme='dark'] .openchat-compose-box {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #1a1d26;
+}
+
+.openchat-compose-input {
+  width: 100%;
+  min-height: 2.75rem;
+  max-height: 9rem;
+  resize: none;
+  border: 0;
+  background: transparent;
+  padding: 0.75rem 1rem;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: #191f28;
+  outline: none;
+}
+html[data-theme='dark'] .openchat-compose-input {
+  color: #e7ebf3;
+}
+.openchat-compose-input::placeholder {
+  color: #949ba4;
+}
+html[data-theme='dark'] .openchat-compose-input::placeholder {
+  color: #6a7484;
+}
+
+.openchat-compose-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2.625rem;
+  border-top: 1px solid #eef0f3;
+  padding: 0.375rem 0.5rem 0.375rem 0.25rem;
+}
+
+.openchat-compose-icon-group {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  border-radius: 9999px;
+  background: #f2f3f5;
+  padding: 0.125rem;
+}
+html[data-theme='dark'] .openchat-compose-icon-group {
+  background: rgba(255, 255, 255, 0.08);
+}
+.openchat-compose-icon-group--disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.openchat-compose-icon-btn {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #949ba4;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.openchat-compose-icon-group > label.openchat-compose-icon-btn {
+  border-radius: 9999px 0 0 9999px;
+}
+.openchat-compose-icon-group > div > .openchat-compose-icon-btn {
+  border-radius: 0 9999px 9999px 0;
+}
+.openchat-compose-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.65);
+  color: #191f28;
+}
+html[data-theme='dark'] .openchat-compose-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e7ebf3;
+}
+.openchat-compose-icon-btn--active {
+  color: #3d9a5f;
+}
+html[data-theme='dark'] .openchat-compose-icon-btn--active {
+  color: #6dd99a;
+}
+/* 닉네임 접기/펼침 시 툴바 높이 고정 */
+.openchat-compose-nickname-slot {
+  position: relative;
+  height: 2.25rem;
+  min-height: 2.25rem;
+  flex-shrink: 0;
+}
+.openchat-compose-nickname-slot--collapsed {
+  width: auto;
+  max-width: 8.75rem;
+}
+.openchat-compose-nickname-trigger {
+  display: inline-flex;
+  height: 100%;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0 0.5rem 0 0.125rem;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: #949ba4;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.openchat-compose-nickname-trigger:hover {
+  background: #f2f3f5;
+  color: #191f28;
+}
+html[data-theme='dark'] .openchat-compose-nickname-trigger:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e7ebf3;
+}
+.openchat-compose-nickname-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: #4e5968;
+}
+html[data-theme='dark'] .openchat-compose-nickname-label {
+  color: #c5cdd8;
+}
+.openchat-compose-nickname-input {
+  height: 100%;
+  min-height: 0;
+  padding: 0 0.25rem;
+  border: 0;
+  background: transparent;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  box-shadow: none;
+}
+.openchat-compose-nickname-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+@media (max-width: 767px) {
+  .openchat-compose-toolbar .openchat-compose-nickname-input {
+    font-size: 0.75rem;
+  }
+}
+.openchat-compose-nickname-slot--expanded {
+  min-width: 0;
+  flex: 1 1 0%;
+}
+.openchat-compose-nickname-slot > * {
+  height: 100%;
+}
+.openchat-compose-nickname-action {
+  flex-shrink: 0;
+  padding: 0 0.125rem;
+  border: none;
+  background: transparent;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: #949ba4;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.openchat-compose-nickname-action:hover {
+  color: #4e5968;
+}
+.openchat-compose-nickname-action--save {
+  font-weight: 600;
+  color: #4a6bcc;
+}
+.openchat-compose-nickname-action--save:hover {
+  color: #3d5ab0;
+}
+html[data-theme='dark'] .openchat-compose-nickname-action {
+  color: #6a7484;
+}
+html[data-theme='dark'] .openchat-compose-nickname-action:hover {
+  color: #c5cdd8;
+}
+html[data-theme='dark'] .openchat-compose-nickname-action--save {
+  color: #9db6ff;
+}
+html[data-theme='dark'] .openchat-compose-nickname-action--save:hover {
+  color: #b4c8ff;
+}
+html[data-theme='dark'] .openchat-compose-toolbar {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+/* 채팅 패널 위 이모지 선택 레이어 (불투명도 80%) */
+.openchat-emoji-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  padding-bottom: 0.375rem;
+  pointer-events: auto;
+}
+.openchat-emoji-layer-scrim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  cursor: default;
+  background: rgba(236, 239, 244, 0.8);
+}
+html[data-theme='dark'] .openchat-emoji-layer-scrim {
+  background: rgba(18, 20, 28, 0.8);
+}
+.openchat-emoji-picker-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: calc(100% - 1rem);
+  max-width: 40rem;
+  min-height: min(26rem, 52vh);
+  max-height: min(34rem, 68vh);
+  margin: 0 auto 0.5rem;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  border: 1px solid #e1e4e8;
+  background: #fff;
+  box-shadow: 0 8px 32px -8px rgba(15, 23, 42, 0.22);
+}
+html[data-theme='dark'] .openchat-emoji-picker-card {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #fff;
+  box-shadow: 0 12px 40px -12px rgba(0, 0, 0, 0.5);
+}
+
+.openchat-emoji-picker-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.125rem;
+  border-bottom: 1px solid #eef0f3;
+  padding: 0.375rem 0.25rem 0;
+  background: #fff;
+}
+html[data-theme='dark'] .openchat-emoji-picker-toolbar {
+  border-bottom-color: #eef0f3;
+  background: #fff;
+}
+
+.openchat-emoji-tab-scroll {
+  display: inline-flex;
+  flex-shrink: 0;
+  height: 2.25rem;
+  width: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: #b0b8c1;
+  cursor: pointer;
+}
+.openchat-emoji-tab-scroll:hover {
+  color: #6a7484;
+  background: #f2f3f5;
+}
+
+.openchat-emoji-tab-strip {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-end;
+  gap: 0.125rem;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.openchat-emoji-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.openchat-emoji-tab {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  height: 2.5rem;
+  min-width: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0.375rem 0.375rem 0 0;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.45;
+  filter: grayscale(1);
+  transition: opacity 0.15s, filter 0.15s;
+}
+.openchat-emoji-tab:hover {
+  opacity: 0.75;
+}
+.openchat-emoji-tab--active {
+  opacity: 1;
+  filter: none;
+}
+.openchat-emoji-tab--active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 1.375rem;
+  height: 2px;
+  border-radius: 1px;
+  background: #00c73c;
+  transform: translateX(-50%);
+}
+.openchat-emoji-tab-icon {
+  font-size: 1.375rem;
+  line-height: 1;
+}
+
+.openchat-emoji-picker-body {
+  flex: 1 1 auto;
+  min-height: min(22rem, 46vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.5rem 0.625rem 0.75rem;
+  background: #fff;
+}
+html[data-theme='dark'] .openchat-emoji-picker-body {
+  background: #fff;
+}
+.openchat-compose-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+.openchat-compose-emoji-cell {
+  display: flex;
+  min-height: 4.5rem;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  font-size: 3rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.12s, transform 0.12s;
+}
+.openchat-compose-emoji-cell:active {
+  transform: scale(0.94);
+}
+/* 선택한 이모티콘 미리보기 — 작성창 상단에 밀착 */
+.openchat-chat-sticker-preview {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 35;
+  border-top: 1px solid rgba(61, 66, 77, 0.7);
+  background: rgba(74, 79, 89, 0.7);
+  padding: 0.625rem 1rem;
+  bottom: calc(
+    var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + env(safe-area-inset-bottom, 0px)
+  );
+  box-shadow: 0 -4px 16px -6px rgba(15, 23, 42, 0.15);
+  pointer-events: auto;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+html[data-theme='dark'] .openchat-chat-sticker-preview {
+  border-top-color: rgba(255, 255, 255, 0.1);
+  background: rgba(58, 63, 74, 0.7);
+  box-shadow: 0 -6px 20px -8px rgba(0, 0, 0, 0.35);
+}
+.openchat-chat-sticker-preview-inner {
+  position: relative;
+  display: flex;
+  min-height: 5.5rem;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  max-width: 1024px;
+}
+.openchat-chat-sticker-preview-emoji {
+  font-size: 3.75rem;
+  line-height: 1;
+}
+.openchat-chat-sticker-preview-close {
+  position: absolute;
+  right: 0;
+  top: 0;
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+.openchat-chat-sticker-preview-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.openchat-message-sticker {
+  font-size: 4.5rem;
+  line-height: 1;
+  padding: 0.125rem 0;
+}
+.openchat-compose-emoji-cell:hover {
+  background: #f2f3f5;
+}
+html[data-theme='dark'] .openchat-compose-emoji-cell:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.openchat-compose-send {
+  flex-shrink: 0;
+  min-height: 2.25rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #949ba4;
+  background: #eceff4;
+  cursor: not-allowed;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    transform 0.1s,
+    box-shadow 0.15s;
+}
+html[data-theme='dark'] .openchat-compose-send {
+  background: rgba(255, 255, 255, 0.08);
+  color: #6a7484;
+}
+.openchat-compose-send:not(:disabled) {
+  color: #fff;
+  background: #4a6bcc;
+  cursor: pointer;
+  box-shadow: 0 2px 8px -2px rgba(74, 107, 204, 0.45);
+}
+.openchat-compose-send:not(:disabled):hover {
+  background: #3d5ab0;
+}
+.openchat-compose-send:not(:disabled):active {
+  transform: scale(0.97);
+  box-shadow: 0 1px 4px -1px rgba(74, 107, 204, 0.4);
+}
+html[data-theme='dark'] .openchat-compose-send:not(:disabled) {
+  background: #5c87ff;
+  color: #fff;
+}
+html[data-theme='dark'] .openchat-compose-send:not(:disabled):hover {
+  background: #4a6bcc;
+}
+
+.openchat-msg-meta {
+  flex-shrink: 0;
+  padding-bottom: 0.125rem;
+  font-size: 0.625rem;
+  line-height: 1.2;
+  color: #949ba4;
+  white-space: nowrap;
+}
+html[data-theme='dark'] .openchat-msg-meta {
+  color: #6a7484;
+}
+
+.openchat-msg-reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid rgba(148, 155, 164, 0.45);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  color: #4a4f59;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.openchat-msg-reaction-chip:hover:not(:disabled) {
+  background: #f3f5f8;
+}
+.openchat-msg-reaction-chip--mine {
+  border-color: #7eb0ff;
+  background: #eef4ff;
+}
+.openchat-msg-reaction-count {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #6a7484;
+}
+.openchat-msg-reaction-chip--mine .openchat-msg-reaction-count {
+  color: #3d6fcc;
+}
+html[data-theme='dark'] .openchat-msg-reaction-chip {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #d5dae3;
+}
+html[data-theme='dark'] .openchat-msg-reaction-chip:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+html[data-theme='dark'] .openchat-msg-reaction-chip--mine {
+  border-color: rgba(126, 176, 255, 0.55);
+  background: rgba(92, 135, 255, 0.18);
+}
+html[data-theme='dark'] .openchat-msg-reaction-count {
+  color: #949ba4;
+}
+html[data-theme='dark'] .openchat-msg-reaction-chip--mine .openchat-msg-reaction-count {
+  color: #9eb8ff;
+}
+
+.openchat-message-reaction-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  padding: 0.65rem 0.75rem 0.7rem;
+}
+.openchat-message-reaction-picker-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.35rem 0.15rem;
+  border: 0;
+  border-radius: 0.65rem;
+  background: transparent;
+  font-size: 1.45rem;
+  line-height: 1;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+.openchat-message-reaction-picker-btn:hover:not(:disabled) {
+  background: #f3f5f8;
+}
+.openchat-message-reaction-picker-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+.openchat-message-reaction-picker-btn--active {
+  background: #eef4ff;
+  box-shadow: inset 0 0 0 1px #7eb0ff;
+}
+.openchat-message-reaction-picker-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+html[data-theme='dark'] .openchat-message-reaction-picker-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+html[data-theme='dark'] .openchat-message-reaction-picker-btn--active {
+  background: rgba(92, 135, 255, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(126, 176, 255, 0.55);
 }
 
 /* iOS: sticky/fixed + backdrop-blur 스크롤 시 떨림 완화 */

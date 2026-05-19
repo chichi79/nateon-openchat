@@ -8,6 +8,7 @@ import type {
   ListMessagesResponse,
   ListRoomMembersResponse,
   ListRoomsResponse,
+  MyClientParticipationsResponse,
   OpenChatRoom,
   OpenChatMessage,
   PostMessageRequest,
@@ -92,6 +93,21 @@ export async function postMessage(roomId: string, body: PostMessageRequest): Pro
   return data.message
 }
 
+export async function toggleMessageReaction(roomId: string, messageId: string, emoji: string, nickname: string) {
+  const cid = browserClientId()
+  if (useOpenchatFirestore()) return openchatFs.toggleMessageReaction(roomId, messageId, emoji, nickname, cid)
+  const res = await fetch(
+    `/api/openchat/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}/reactions`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...ocHeaders() },
+      body: JSON.stringify({ emoji, nickname }),
+    },
+  )
+  const data = await parseJson<{ message: OpenChatMessage }>(res)
+  return data.message
+}
+
 export async function deleteMessage(roomId: string, messageId: string, nickname: string) {
   if (useOpenchatFirestore()) return openchatFs.deleteMessage(roomId, messageId, nickname, browserClientId())
   const res = await fetch(`/api/openchat/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}/delete`, {
@@ -114,6 +130,14 @@ export async function deleteRoom(roomId: string, ownerNickname: string): Promise
     body: JSON.stringify({ nickname: ownerNickname }),
   })
   await parseJson<{ ok: true }>(res)
+}
+
+/** 이 브라우저 clientId 로 참여(또는 가입 신청)한 방별 대화명 */
+export async function listMyParticipations(): Promise<MyClientParticipationsResponse> {
+  const cid = browserClientId()
+  if (useOpenchatFirestore()) return openchatFs.listMyParticipations(cid)
+  const res = await fetch('/api/openchat/me/participations', { headers: { ...ocHeaders() } })
+  return parseJson<MyClientParticipationsResponse>(res)
 }
 
 export async function getMembership(roomId: string, nickname: string): Promise<GetMembershipResponse> {

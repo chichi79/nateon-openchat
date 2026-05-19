@@ -9,8 +9,6 @@ import { installMockFetch } from '@/mocks/install-mock-fetch'
 
 import '@/assets/styles/app.css'
 
-import { ThemeToggle } from '@/components/theme-toggle'
-
 void getFirebaseApp()
 
 const OPENCHAT_THEME_INIT = `(function(){try{var k='openchat-ui-theme';var s=localStorage.getItem(k);var t=s==='light'||s==='dark'?s:'dark';document.documentElement.style.colorScheme=t;document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.style.colorScheme='dark';document.documentElement.setAttribute('data-theme','dark');}})();`
@@ -92,7 +90,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </noscript>
         {children}
-        <ThemeToggle />
         <ScrollRestoration />
         <Scripts />
       </body>

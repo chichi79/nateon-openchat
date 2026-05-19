@@ -82,3 +82,14 @@ export function insertMentionAt(
   const nextText = before + insert + after
   return { nextText, nextCursor: before.length + insert.length }
 }
+
+/** 작성창 커서 위치에 문자열 삽입 */
+export function insertTextAt(
+  text: string,
+  cursorPos: number,
+  insert: string,
+): { nextText: string; nextCursor: number } {
+  const pos = Math.max(0, Math.min(cursorPos, text.length))
+  const nextText = text.slice(0, pos) + insert + text.slice(pos)
+  return { nextText, nextCursor: pos + insert.length }
+}

@@ -1,11 +1,12 @@
 import { forwardRef, useLayoutEffect, useRef } from 'react'
-import { Link, NavLink, Outlet, useLocation } from 'react-router'
+import { Link, Outlet, useLocation } from 'react-router'
 
 import clsx from 'clsx'
 
 import { getAuthFromCookie, type OpenChatAuth } from '@/auth/auth'
 import { NavigationProgress } from '@/components/navigation-progress'
 import { RouteErrorFallback } from '@/components/route-error-fallback'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 import type { Route } from './+types/main-layout'
 
@@ -33,26 +34,6 @@ function BrandMark() {
   )
 }
 
-function NavPill({ to, end, children }: { to: string; end?: boolean; children: React.ReactNode }) {
-  return (
-    <NavLink to={to} end={end}>
-      {({ isActive }) => (
-        <span
-          className={[
-            'relative inline-flex h-9 items-center rounded-full px-3.5 text-sm transition',
-            isActive ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-100',
-          ].join(' ')}
-        >
-          {isActive ? (
-            <span className='absolute inset-0 rounded-full bg-slate-900/[0.06] dark:bg-white/[0.07] ring-1 ring-inset ring-slate-300/35 dark:ring-white/10' />
-          ) : null}
-          <span className='relative z-10'>{children}</span>
-        </span>
-      )}
-    </NavLink>
-  )
-}
-
 function AuthBadge({ auth }: { auth: OpenChatAuth | null }) {
   return (
     <span className='chip'>
@@ -77,18 +58,10 @@ const TopNav = forwardRef<HTMLElement>(function TopNav(_, ref) {
       className='glass sticky top-0 z-40 border-b border-slate-200 dark:border-white/5 pt-[env(safe-area-inset-top,0px)]'
     >
       <div className='mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3'>
-        <div className='flex items-center gap-4'>
-          <BrandMark />
-          <span className='hidden h-5 w-px bg-white/10 md:inline-block' />
-          <nav className='hidden items-center gap-1 md:flex'>
-            <NavPill to='/' end>
-              홈
-            </NavPill>
-            <NavPill to='/rooms'>채팅방</NavPill>
-          </nav>
-        </div>
+        <BrandMark />
 
         <div className='flex items-center gap-2'>
+          <ThemeToggle />
           <AuthBadge auth={auth} />
           {!auth && oauthLoginUrl ? (
             <a href={oauthLoginUrl} className='btn-ghost h-9 px-3 text-xs'>
@@ -99,13 +72,6 @@ const TopNav = forwardRef<HTMLElement>(function TopNav(_, ref) {
           ) : null}
         </div>
       </div>
-
-      <nav className='flex items-center gap-1 border-t border-slate-200 dark:border-white/5 px-4 py-2 md:hidden'>
-        <NavPill to='/' end>
-          홈
-        </NavPill>
-        <NavPill to='/rooms'>채팅방</NavPill>
-      </nav>
     </header>
   )
 })
@@ -135,13 +101,18 @@ export default function MainLayout() {
   }, [])
 
   return (
-    <div className='min-h-dvh overflow-x-clip'>
+    <div
+      className={clsx(
+        'min-h-dvh overflow-x-clip',
+        roomChatDetail && 'lg:mx-auto lg:w-full lg:max-w-[1024px]',
+      )}
+    >
       <NavigationProgress />
       <TopNav ref={headerRef} />
       <main
         className={clsx(
-          'mx-auto min-w-0 max-w-5xl overflow-x-clip px-4',
-          roomChatDetail ? 'pb-8 pt-0' : 'py-8',
+          'mx-auto min-w-0 overflow-x-clip',
+          roomChatDetail ? 'px-0 pb-0 pt-0' : 'max-w-5xl px-4 py-8',
         )}
       >
         <Outlet />

@@ -12,6 +12,7 @@ import type {
   ListMessagesResponse,
   ListRoomsResponse,
   ListRoomMembersResponse,
+  MyClientParticipationsResponse,
   OpenChatMessage,
   OpenChatRoom,
   PostMessageRequest,
@@ -21,6 +22,7 @@ import type {
   SetRoomDisplayNameRequest,
   SetRoomDisplayNameResponse,
 } from '@/features/openchat/openchat.types'
+import { toggleReactionMap } from '@/lib/openchat-message-reactions'
 import { isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
 
 export type OpenChatApiCoreOptions = {
@@ -75,6 +77,8 @@ function matchPath(pathname: string) {
   // /api/openchat/rooms
   if (pathname === '/api/openchat/rooms') return { kind: 'rooms' as const }
 
+  if (pathname === '/api/openchat/me/participations') return { kind: 'myParticipations' as const }
+
   // /api/openchat/rooms/:roomId
   const roomMatch = pathname.match(/^\/api\/openchat\/rooms\/([^/]+)$/)
   if (roomMatch) return { kind: 'room' as const, roomId: decodeURIComponent(roomMatch[1]!) }
@@ -90,6 +94,14 @@ function matchPath(pathname: string) {
       kind: 'deleteMessage' as const,
       roomId: decodeURIComponent(delMatch[1]!),
       messageId: decodeURIComponent(delMatch[2]!),
+    }
+
+  const reactionMatch = pathname.match(/^\/api\/openchat\/rooms\/([^/]+)\/messages\/([^/]+)\/reactions$/)
+  if (reactionMatch)
+    return {
+      kind: 'toggleReaction' as const,
+      roomId: decodeURIComponent(reactionMatch[1]!),
+      messageId: decodeURIComponent(reactionMatch[2]!),
     }
 
   // /api/openchat/rooms/:roomId/membership
@@ -578,6 +590,46 @@ async function handleDeleteMessage(method: string, roomId: string, messageId: st
   return json({ ok: true })
 }
 
+async function handleToggleReaction(method: string, roomId: string, messageId: string, request: Request) {
+  if (method !== 'POST') return methodNotAllowed()
+
+  const room = db.rooms.find((r) => r.id === roomId)
+  if (!room) return notFound('Room not found')
+
+  let body: { emoji?: string; nickname?: string } | undefined
+  try {
+    body = (await request.json()) as { emoji?: string; nickname?: string }
+  } catch {
+    return badRequest('Invalid JSON body')
+  }
+  const emoji = (body?.emoji ?? '').trim()
+  const nickname = (body?.nickname ?? '').trim()
+  if (!emoji) return badRequest('emoji is required')
+  if (!nickname) return badRequest('nickname is required')
+
+  const cid = readClientIdFromRequest(request)
+  if (!cid) return badRequest('client id is required')
+
+  if (room.policy !== 'open_link') {
+    const key = resolveMemberKey(roomId, nickname, cid)
+    if (getMembershipStatus(roomId, key) !== 'member') return forbidden('Only members can react')
+  }
+
+  const list = db.messagesByRoomId[roomId] ?? []
+  const idx = list.findIndex((m) => m.id === messageId)
+  if (idx < 0) return notFound('Message not found')
+
+  const msg = list[idx]!
+  if (msg.deletedAt) return badRequest('Cannot react to deleted message')
+
+  const reactions = toggleReactionMap(msg.reactions, emoji, cid)
+  const next: OpenChatMessage = { ...msg, reactions }
+  db.messagesByRoomId[roomId] = [...list.slice(0, idx), next, ...list.slice(idx + 1)]
+  persist()
+
+  return json({ message: next })
+}
+
 async function handleReadCursor(method: string, roomId: string, request: Request) {
   if (method !== 'POST') return methodNotAllowed()
 
@@ -1048,6 +1100,49 @@ async function handleListMembers(method: string, roomId: string, url: URL, req: 
   return json(payload)
 }
 
+async function handleMyParticipations(method: string, req: Request) {
+  if (method !== 'GET') return methodNotAllowed()
+
+  const clientId = readClientIdFromRequest(req)
+  if (!clientId) return badRequest('client id is required')
+
+  const participations: MyClientParticipationsResponse['participations'] = []
+  const seenRoomIds = new Set<string>()
+
+  for (const room of db.rooms) {
+    const roomId = room.id
+    const memberKey = db.clientIdToMemberKeyByRoomId[roomId]?.[clientId]
+    const displayName = db.displayNameByClientIdByRoomId[roomId]?.[clientId]
+    const isOwner = room.ownerClientId === clientId
+
+    if (!memberKey && !displayName && !isOwner) continue
+
+    const key = memberKey ?? room.ownerNickname
+    let status = memberKey ? getMembershipStatus(roomId, key) : 'none'
+    if (status === 'none' && (displayName || isOwner)) status = 'member'
+    if (status === 'none') continue
+
+    const owner = isOpenchatRoomOwner(room, key, clientId)
+    const mgrs = db.managersByRoomId[roomId] ?? []
+    const role = owner ? ('owner' as const) : mgrs.includes(key) ? ('manager' as const) : undefined
+
+    participations.push({
+      roomId,
+      roomTitle: room.title,
+      displayName: displayName ?? resolveDisplayName(roomId, clientId, key),
+      nickname: key,
+      status,
+      role,
+    })
+    seenRoomIds.add(roomId)
+  }
+
+  participations.sort((a, b) => a.roomTitle.localeCompare(b.roomTitle, 'ko'))
+
+  const payload: MyClientParticipationsResponse = { clientId, participations }
+  return json(payload)
+}
+
 async function handleDisplayNames(method: string, roomId: string, url: URL, req: Request) {
   if (method !== 'GET') return methodNotAllowed()
 
@@ -1071,6 +1166,12 @@ async function handleDisplayNames(method: string, roomId: string, url: URL, req:
   for (const [cid, name] of Object.entries(nameMap)) {
     const memberKey = cidMap[cid]
     if (memberKey && members[memberKey] === 'member') byClientId[cid] = name
+  }
+  for (const [cid, memberKey] of Object.entries(cidMap)) {
+    if (byClientId[cid]) continue
+    if (members[memberKey] !== 'member') continue
+    const name = nameMap[cid] ?? memberKey
+    if (name.trim()) byClientId[cid] = name.trim()
   }
   const payload: RoomDisplayNamesResponse = { roomId, byClientId }
   return json(payload)
@@ -1129,12 +1230,16 @@ async function handleSetDisplayName(method: string, roomId: string, request: Req
       case 'rooms':
         if (method === 'POST') return handleCreateRoom(method, req)
         return handleRooms(method, url)
+      case 'myParticipations':
+        return handleMyParticipations(method, req)
       case 'room':
         return handleRoom(method, match.roomId)
       case 'messages':
         return handleMessages(method, match.roomId, req)
       case 'deleteMessage':
         return handleDeleteMessage(method, match.roomId, match.messageId, req)
+      case 'toggleReaction':
+        return handleToggleReaction(method, match.roomId, match.messageId, req)
       case 'membership':
         return handleMembership(method, match.roomId, url, req)
       case 'join':

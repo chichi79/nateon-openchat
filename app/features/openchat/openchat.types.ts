@@ -13,6 +13,9 @@ export type OpenChatRoom = {
 
 export type OpenChatMessageKind = 'chat' | 'system'
 
+/** 이모지 → 반응한 clientId 목록 */
+export type MessageReactions = Record<string, string[]>
+
 export type OpenChatMessage = {
   id: string
   roomId: string
@@ -23,8 +26,13 @@ export type OpenChatMessage = {
   text: string
   replyToMessageId?: string
   attachments?: OpenChatAttachment[]
+  reactions?: MessageReactions
   deletedAt?: string
   createdAt: string
+}
+
+export type ToggleMessageReactionResponse = {
+  message: OpenChatMessage
 }
 
 export type OpenChatAttachment =
@@ -40,6 +48,10 @@ export type OpenChatAttachment =
       name: string
       mimeType: string
       size: number
+    }
+  | {
+      kind: 'sticker'
+      emoji: string
     }
 
 export type ListRoomsResponse = {
@@ -140,5 +152,26 @@ export type PostMessageRequest = {
 
 export type PostMessageResponse = {
   message: OpenChatMessage
+}
+
+/** 참여 방 목록에서의 운영 권한 */
+export type ParticipationRole = 'owner' | 'manager'
+
+/** 클라이언트 ID 기준 — 참여(또는 가입 신청)한 방별 대화명 */
+export type MyClientParticipationRow = {
+  roomId: string
+  roomTitle: string
+  /** 이 방에서 사용 중인 표시 이름(대화명) */
+  displayName: string
+  /** 멤버 내부 키 */
+  nickname: string
+  status: Exclude<MembershipStatus, 'none'>
+  /** 방장 또는 매니저일 때 */
+  role?: ParticipationRole
+}
+
+export type MyClientParticipationsResponse = {
+  clientId: string
+  participations: MyClientParticipationRow[]
 }
 

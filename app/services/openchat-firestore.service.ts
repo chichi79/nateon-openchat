@@ -1,5 +1,6 @@
 import {
   collection,
+  collectionGroup,
   deleteDoc,
   deleteField,
   doc,
@@ -22,12 +23,14 @@ import {
 } from 'firebase/firestore'
 
 import { isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
+import { parseMessageReactions, toggleReactionMap } from '@/lib/openchat-message-reactions'
 import type {
   CreateRoomRequest,
   GetMembershipResponse,
   JoinRoomRequest,
   ListRoomMembersResponse,
   MembershipStatus,
+  MyClientParticipationsResponse,
   OpenChatMessage,
   OpenChatRoom,
   PostMessageRequest,
@@ -151,6 +154,7 @@ function msgFromSnap(roomId: string, id: string, data: Record<string, unknown>):
     text: String(data.text ?? ''),
     replyToMessageId: data.replyToMessageId ? String(data.replyToMessageId) : undefined,
     attachments: Array.isArray(data.attachments) ? (data.attachments as OpenChatMessage['attachments']) : undefined,
+    reactions: parseMessageReactions(data.reactions),
     deletedAt: data.deletedAt ? tsToIso(data.deletedAt as Timestamp) : undefined,
     createdAt: tsToIso(data.createdAt as Timestamp | undefined),
   }
@@ -463,6 +467,35 @@ export async function deleteMessage(
     deletedAt: serverTimestamp(),
   })
   return true
+}
+
+export async function toggleMessageReaction(
+  roomId: string,
+  messageId: string,
+  emoji: string,
+  actorNickname: string,
+  clientId?: string | null,
+): Promise<OpenChatMessage> {
+  const room = await getRoom(roomId)
+  const nick = actorNickname.trim()
+  const cid = (clientId ?? '').trim()
+  const e = emoji.trim()
+  if (!nick || !cid || !e) throw new Error('nickname, client id, and emoji are required')
+
+  if (room.policy !== 'open_link') {
+    const st = await getMembershipStatus(roomId, nick, cid)
+    if (st !== 'member') throw new Error('Only members can react')
+  }
+
+  const mref = doc(messagesCol(roomId), messageId)
+  const ms = await getDoc(mref)
+  if (!ms.exists()) throw new Error('Message not found')
+  const msg = msgFromSnap(roomId, messageId, ms.data() as Record<string, unknown>)
+  if (msg.deletedAt) throw new Error('Cannot react to deleted message')
+
+  const reactions = toggleReactionMap(msg.reactions, e, cid)
+  await updateDoc(mref, { reactions: reactions ?? deleteField() })
+  return { ...msg, reactions }
 }
 
 async function getMembershipStatus(roomId: string, nickname: string, clientId?: string | null): Promise<MembershipStatus> {
@@ -822,6 +855,136 @@ export async function listRoomMembers(
     blocked: (rdata.blocked as string[]) ?? [],
     members,
   }
+}
+
+function isFirestoreIndexError(e: unknown) {
+  const msg = e instanceof Error ? e.message : String(e)
+  return /COLLECTION_GROUP|requires an index|index.*memberRecords/i.test(msg)
+}
+
+function resolveParticipationRole(
+  room: OpenChatRoom,
+  managers: string[],
+  memberKey: string,
+  clientId: string,
+): MyClientParticipationsResponse['participations'][number]['role'] {
+  if (isOpenchatRoomOwner(room, memberKey, clientId)) return 'owner'
+  if (managers.includes(memberKey)) return 'manager'
+  return undefined
+}
+
+function participationFromMemberDoc(
+  roomId: string,
+  room: OpenChatRoom,
+  data: Record<string, unknown>,
+  clientId: string,
+  managers: string[],
+): MyClientParticipationsResponse['participations'][number] | null {
+  const status = String(data.status ?? '') as MembershipStatus
+  if (status === 'none') return null
+  const nickname = String(data.nickname ?? '').trim()
+  const displayName = String(data.displayName ?? nickname).trim() || nickname
+  return {
+    roomId,
+    roomTitle: room.title,
+    displayName,
+    nickname,
+    status: status as Exclude<MembershipStatus, 'none'>,
+    role: resolveParticipationRole(room, managers, nickname, clientId),
+  }
+}
+
+/** 인덱스 없을 때: 방 목록을 순회하며 memberRecords 를 room 단위로 조회 */
+async function listMyParticipationsByRoomScan(cid: string): Promise<MyClientParticipationsResponse['participations']> {
+  const participations: MyClientParticipationsResponse['participations'] = []
+  const seenRoomIds = new Set<string>()
+  const roomsSnap = await getDocs(roomsCol())
+
+  for (const roomDoc of roomsSnap.docs) {
+    const roomId = roomDoc.id
+    const rdata = roomDoc.data() as Record<string, unknown>
+    const room = roomFromSnap(roomId, rdata)
+    const managers = (rdata.managers as string[]) ?? []
+    const qs = await getDocs(query(membersCol(roomId), where('clientId', '==', cid), limit(1)))
+    const memberDoc = qs.docs[0]
+    if (!memberDoc) continue
+    const row = participationFromMemberDoc(roomId, room, memberDoc.data() as Record<string, unknown>, cid, managers)
+    if (!row) continue
+    participations.push(row)
+    seenRoomIds.add(roomId)
+  }
+
+  const ownedSnap = await getDocs(query(roomsCol(), where('ownerClientId', '==', cid)))
+  for (const d of ownedSnap.docs) {
+    if (seenRoomIds.has(d.id)) continue
+    const room = roomFromSnap(d.id, d.data() as Record<string, unknown>)
+    participations.push({
+      roomId: d.id,
+      roomTitle: room.title,
+      displayName: room.ownerNickname,
+      nickname: room.ownerNickname,
+      status: 'member',
+      role: 'owner',
+    })
+  }
+
+  return participations
+}
+
+/** 요청 헤더의 clientId 기준 — 참여·가입 신청한 방별 대화명 목록 */
+export async function listMyParticipations(clientId?: string | null): Promise<MyClientParticipationsResponse> {
+  const cid = (clientId ?? '').trim()
+  if (!cid) throw new Error('client id is required')
+
+  let participations: MyClientParticipationsResponse['participations']
+
+  try {
+    const snap = await getDocs(query(collectionGroup(firestore(), 'memberRecords'), where('clientId', '==', cid)))
+    participations = []
+    const seenRoomIds = new Set<string>()
+
+    for (const d of snap.docs) {
+      const roomId = d.ref.parent.parent?.id
+      if (!roomId) continue
+
+      let room: OpenChatRoom
+      let managers: string[] = []
+      try {
+        const roomSnap = await getDoc(roomRef(roomId))
+        if (!roomSnap.exists()) continue
+        const rdata = roomSnap.data() as Record<string, unknown>
+        room = roomFromSnap(roomId, rdata)
+        managers = (rdata.managers as string[]) ?? []
+      } catch {
+        continue
+      }
+
+      const row = participationFromMemberDoc(roomId, room, d.data() as Record<string, unknown>, cid, managers)
+      if (!row) continue
+      participations.push(row)
+      seenRoomIds.add(roomId)
+    }
+
+    const ownedSnap = await getDocs(query(roomsCol(), where('ownerClientId', '==', cid)))
+    for (const d of ownedSnap.docs) {
+      if (seenRoomIds.has(d.id)) continue
+      const room = roomFromSnap(d.id, d.data() as Record<string, unknown>)
+      participations.push({
+        roomId: d.id,
+        roomTitle: room.title,
+        displayName: room.ownerNickname,
+        nickname: room.ownerNickname,
+        status: 'member',
+        role: 'owner',
+      })
+    }
+  } catch (e) {
+    if (!isFirestoreIndexError(e)) throw e
+    participations = await listMyParticipationsByRoomScan(cid)
+  }
+
+  participations.sort((a, b) => a.roomTitle.localeCompare(b.roomTitle, 'ko'))
+  return { clientId: cid, participations }
 }
 
 export async function listRoomDisplayNames(
