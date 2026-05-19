@@ -70,9 +70,8 @@ function syncKeyboardLayout(composeEl?: HTMLElement | null) {
     root.style.removeProperty(SAFE_BOTTOM_VAR)
   }
 
-  /* visualViewport 계산 후 실제 입력창 top 으로 맞춤(미리보기 translateY(-100%) 포함) */
-  const anchor = () => syncOpenchatComposeAnchor(compose)
-  requestAnimationFrame(() => requestAnimationFrame(anchor))
+  /* 모바일: compose-top 은 visualViewport 계산값만 사용.
+   * getBoundingClientRect 로 덮어쓰면 키보드 애니메이션 중 이전 위치로 되돌아감. */
 }
 
 let raf = 0
