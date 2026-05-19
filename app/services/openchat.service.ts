@@ -389,6 +389,30 @@ export async function listRoomMembers(roomId: string, actorNickname: string) {
   return parseJson<ListRoomMembersResponse>(res)
 }
 
+export function subscribeRoomMembers(
+  roomId: string,
+  actorNickname: string,
+  onUpdate: (data: ListRoomMembersResponse) => void,
+): () => void {
+  if (useOpenchatFirestore()) return openchatFs.subscribeRoomMembers(roomId, onUpdate)
+  let cancelled = false
+  const tick = async () => {
+    if (cancelled) return
+    try {
+      const d = await listRoomMembers(roomId, actorNickname)
+      if (!cancelled) onUpdate(d)
+    } catch (e) {
+      console.error('[openchat] subscribeRoomMembers', e)
+    }
+  }
+  void tick()
+  const iv = window.setInterval(tick, 3000)
+  return () => {
+    cancelled = true
+    window.clearInterval(iv)
+  }
+}
+
 export function subscribeRoomTyping(
   roomId: string,
   onUpdate: (rows: { nickname: string; atMs: number }[]) => void,

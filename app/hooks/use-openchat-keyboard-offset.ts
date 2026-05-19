@@ -1,16 +1,35 @@
 import { useEffect } from 'react'
 
+const KEYBOARD_OFFSET_VAR = '--openchat-keyboard-offset'
+
+function viewportUsesResizesContent() {
+  const content = document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? ''
+  return content.includes('interactive-widget=resizes-content')
+}
+
 /**
- * iOS Safari: `interactive-widget=resizes-content` 이면 레이아웃이 이미 줄어들므로
- * 추가 bottom offset 은 입력창이 키보드 위로 이중으로 올라갑니다.
- * visualViewport `scroll` 은 채팅 스크롤 시 offset 을 흔들어 고정 UI가 떨립니다 — resize 만 사용.
+ * `interactive-widget=resizes-content`(root viewport 메타)면 레이아웃이 키보드만큼 줄어들어
+ * fixed 입력창은 bottom:0 만으로 충분합니다. 수동 offset 을 더하면 전송 후 입력창이 위로 뜁니다.
+ * 구형 브라우저만 visualViewport 로 보조 offset 을 계산합니다.
  */
 export function useOpenchatKeyboardOffset(active = true) {
   useEffect(() => {
     if (!active || typeof window === 'undefined') return
 
+    const setOffset = (px: number) => {
+      document.documentElement.style.setProperty(KEYBOARD_OFFSET_VAR, `${Math.round(px)}px`)
+    }
+
+    if (viewportUsesResizesContent()) {
+      setOffset(0)
+      return () => document.documentElement.style.removeProperty(KEYBOARD_OFFSET_VAR)
+    }
+
     const vv = window.visualViewport
-    if (!vv) return
+    if (!vv) {
+      setOffset(0)
+      return () => document.documentElement.style.removeProperty(KEYBOARD_OFFSET_VAR)
+    }
 
     let raf = 0
 
@@ -18,12 +37,9 @@ export function useOpenchatKeyboardOffset(active = true) {
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
         const gap = window.innerHeight - vv.height
-        // 뷰포트가 이미 키보드만큼 줄었으면(메타 resizes-content) 수동 offset 불필요
         const layoutAlreadyResized = gap < 48
-        const offset = layoutAlreadyResized
-          ? 0
-          : Math.max(0, gap - Math.max(0, vv.offsetTop))
-        document.documentElement.style.setProperty('--openchat-keyboard-offset', `${Math.round(offset)}px`)
+        const offset = layoutAlreadyResized ? 0 : Math.max(0, gap - Math.max(0, vv.offsetTop))
+        setOffset(offset)
       })
     }
 
@@ -35,7 +51,7 @@ export function useOpenchatKeyboardOffset(active = true) {
       cancelAnimationFrame(raf)
       vv.removeEventListener('resize', sync)
       window.removeEventListener('orientationchange', sync)
-      document.documentElement.style.removeProperty('--openchat-keyboard-offset')
+      document.documentElement.style.removeProperty(KEYBOARD_OFFSET_VAR)
     }
   }, [active])
 }

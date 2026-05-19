@@ -29,6 +29,15 @@ import {
   splitMentionParts,
   textMentionsAny,
 } from '@/lib/openchat-mention'
+import {
+  mentionNotificationPermission,
+  mentionNotificationSecureContext,
+  mentionNotificationSupported,
+  postMentionBrowserNotification,
+  promptMentionNotificationPermission,
+  readMentionNotificationsEnabled,
+  setMentionNotificationsEnabled,
+} from '@/lib/openchat-mention-notification'
 import { ComposeEmojiPicker } from '@/components/compose-emoji-picker'
 import {
   OpenchatParticipationDrawer,
@@ -69,6 +78,7 @@ import {
   toggleMessageReaction,
   subscribeJoinRequests,
   subscribeMyMembership,
+  subscribeRoomMembers,
   subscribeRoomDisplayNames,
   subscribeRoomReadStates,
   subscribeRoomTyping,
@@ -249,9 +259,11 @@ export default function RoomDetailPage() {
   const myClientId = ensureOpenchatClientId()
   const formRef = useRef<HTMLFormElement | null>(null)
   const composeBarRef = useRef<HTMLDivElement | null>(null)
+  const roomStickyHeadRef = useRef<HTMLDivElement | null>(null)
   const chatPanelRef = useRef<HTMLDivElement | null>(null)
   const composeTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const isAtBottomRef = useRef(true)
+  const showScrollTopFabRef = useRef(false)
   const lastScrollYRef = useRef(0)
   const [me, setMe] = useState<GetMembershipResponse>(initialMe)
   const membership = me.status
@@ -295,9 +307,8 @@ export default function RoomDetailPage() {
   const typingPingTimerRef = useRef<number | null>(null)
   const typingClearTimerRef = useRef<number | null>(null)
   const [isNicknameOpen, setIsNicknameOpen] = useState(false)
-  const [notifPerm, setNotifPerm] = useState<NotificationPermission>(() =>
-    typeof globalThis !== 'undefined' && typeof Notification !== 'undefined' ? Notification.permission : 'denied',
-  )
+  const [mentionNotifOn, setMentionNotifOn] = useState(() => readMentionNotificationsEnabled())
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission>(() => mentionNotificationPermission())
   const [displayNameDraft, setDisplayNameDraft] = useState(senderName)
   const [composeText, setComposeText] = useState('')
   const [typingRows, setTypingRows] = useState<{ nickname: string; atMs: number }[]>([])
@@ -312,6 +323,7 @@ export default function RoomDetailPage() {
   const [messageSlideInIds, setMessageSlideInIds] = useState<Set<string>>(() => new Set())
 
   const [moderatorPanelTab, setModeratorPanelTab] = useState<ModeratorPanelTab>('members')
+  const [moderatorPanelOpen, setModeratorPanelOpen] = useState(false)
 
   const moderatorTabs = useMemo(() => {
     if (!isModerator) return [] as { id: ModeratorPanelTab; label: string; badge?: number }[]
@@ -336,6 +348,19 @@ export default function RoomDetailPage() {
     if (ids.length === 0) return
     setModeratorPanelTab((cur) => (ids.includes(cur) ? cur : ids[0]!))
   }, [moderatorTabs])
+
+  useEffect(() => {
+    setModeratorPanelOpen(false)
+  }, [room.id])
+
+  useEffect(() => {
+    if (!moderatorPanelOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setModeratorPanelOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [moderatorPanelOpen])
 
   const policyChip = policyChipFor(room.policy)
   useOpenchatKeyboardOffset(true)
@@ -518,14 +543,15 @@ export default function RoomDetailPage() {
       if (cid === myClientId) continue
       add(dn)
     }
-    for (const m of sortedMessages) {
-      if (m.deletedAt || m.kind === 'system') continue
-      if (isOpenchatMessageMine(m, senderName, myClientId)) continue
-      add(labelForMessage(m))
-      add(m.sender)
+    if (memberDirectory) {
+      for (const row of memberDirectory.members) {
+        if (row.status !== 'member') continue
+        if (row.clientId === myClientId) continue
+        add(row.displayName?.trim() || row.nickname)
+      }
     }
     return [...names].sort((a, b) => a.localeCompare(b, 'ko'))
-  }, [displayNamesByClientId, myClientId, myMentionAliases, sortedMessages, labelForMessage, senderName])
+  }, [displayNamesByClientId, memberDirectory, myClientId, myMentionAliases])
 
   const grouped = useMemo(() => {
     const out: Array<{ kind: 'day'; day: string } | { kind: 'msg'; msg: OpenChatMessage }> = []
@@ -696,9 +722,19 @@ export default function RoomDetailPage() {
     }
   }, [room.id, senderName, firestoreLive])
 
-  useEffect(() => {
-    if (typeof Notification !== 'undefined') setNotifPerm(Notification.permission)
+  const syncMentionNotifPerm = useCallback(() => {
+    setNotifPerm(mentionNotificationPermission())
   }, [])
+
+  useEffect(() => {
+    syncMentionNotifPerm()
+    window.addEventListener('focus', syncMentionNotifPerm)
+    document.addEventListener('visibilitychange', syncMentionNotifPerm)
+    return () => {
+      window.removeEventListener('focus', syncMentionNotifPerm)
+      document.removeEventListener('visibilitychange', syncMentionNotifPerm)
+    }
+  }, [syncMentionNotifPerm])
 
   useEffect(() => {
     if (!canViewChatHistory) {
@@ -730,6 +766,7 @@ export default function RoomDetailPage() {
   }, [room.id, sortedMessages])
 
   useEffect(() => {
+    if (!mentionNotifOn) return
     for (const m of sortedMessages) {
       if (mentionNotifiedIdsRef.current.has(m.id)) continue
       mentionNotifiedIdsRef.current.add(m.id)
@@ -742,17 +779,53 @@ export default function RoomDetailPage() {
         showOpenchatToast(`${from}님이 회원님을 멘션했습니다: ${preview}`)
         continue
       }
-      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') continue
-      try {
-        new Notification(`${from}님이 회원님을 멘션`, {
-          body: (m.text || '').slice(0, 140),
-          tag: `openchat-mention-${room.id}-${m.id}`,
-        })
-      } catch {
-        /* ignore */
-      }
+      postMentionBrowserNotification(
+        `${from}님이 회원님을 멘션`,
+        (m.text || '').slice(0, 140),
+        `openchat-mention-${room.id}-${m.id}`,
+      )
     }
-  }, [sortedMessages, senderName, myClientId, room.id, labelForMessage, myMentionAliases])
+  }, [mentionNotifOn, sortedMessages, senderName, myClientId, room.id, labelForMessage, myMentionAliases])
+
+  const handleMentionNotifClick = useCallback(async () => {
+    if (mentionNotifOn) {
+      setMentionNotificationsEnabled(false)
+      setMentionNotifOn(false)
+      showOpenchatToast('멘션 알림을 껐어요.')
+      return
+    }
+
+    setMentionNotificationsEnabled(true)
+    setMentionNotifOn(true)
+    showOpenchatToast('멘션 알림을 켰어요. 이 탭이 보일 때는 토스트로 알려요.')
+
+    if (!mentionNotificationSupported() || !mentionNotificationSecureContext()) return
+
+    const perm = mentionNotificationPermission()
+    if (perm === 'granted') {
+      postMentionBrowserNotification(
+        '멘션 알림이 켜졌어요',
+        '다른 탭·백그라운드일 때 멘션을 알려 드려요.',
+        'openchat-mention-perm-test',
+      )
+      return
+    }
+    if (perm === 'denied') {
+      showOpenchatToast('백그라운드 OS 알림은 브라우저 사이트 설정에서 허용해 주세요.')
+      return
+    }
+    const next = await promptMentionNotificationPermission()
+    setNotifPerm(next)
+    if (next === 'granted') {
+      postMentionBrowserNotification(
+        '멘션 알림이 켜졌어요',
+        '다른 탭·백그라운드일 때 멘션을 알려 드려요.',
+        'openchat-mention-perm-test',
+      )
+    } else if (next === 'denied') {
+      showOpenchatToast('OS 알림은 거부됐지만, 이 탭에서는 토스트로 알려 드려요.')
+    }
+  }, [mentionNotifOn])
 
   const applyMentionPick = useCallback(
     (name: string) => {
@@ -837,23 +910,15 @@ export default function RoomDetailPage() {
   }, [isModerator, room.policy, room.id, senderName])
 
   useEffect(() => {
-    let cancelled = false
     if (!isModerator) {
       setMemberDirectory(null)
       return
     }
-    void (async () => {
-      try {
-        const d = await listRoomMembers(room.id, senderName)
-        if (!cancelled) setMemberDirectory(d)
-      } catch (e) {
-        if (!cancelled) setAdminError(e instanceof Error ? e.message : '멤버 목록 로드 실패')
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [isModerator, room.id, senderName, membership, pendingNicknames.length])
+    return subscribeRoomMembers(room.id, senderName, (d) => {
+      setMemberDirectory(d)
+      setAdminError(null)
+    })
+  }, [isModerator, room.id, senderName])
 
   useEffect(() => {
     let cancelled = false
@@ -1116,7 +1181,26 @@ export default function RoomDetailPage() {
       ro.disconnect()
       window.removeEventListener('resize', sync)
     }
-  }, [replyTo?.id, outgoingAttachments.length, selectedSticker, canPost])
+  }, [replyTo?.id, outgoingAttachments.length, selectedSticker, canPost, isNicknameOpen])
+
+  useLayoutEffect(() => {
+    const el = roomStickyHeadRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+
+    const sync = () => {
+      const h = el.getBoundingClientRect().height
+      document.documentElement.style.setProperty('--openchat-room-head-h', `${Math.round(h * 1000) / 1000}px`)
+    }
+
+    sync()
+    const ro = new ResizeObserver(() => sync())
+    ro.observe(el)
+    window.addEventListener('resize', sync)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', sync)
+    }
+  }, [memberDirectory?.members.length, room.title, moderatorTabs.length, mentionNotifOn, canViewChatHistory])
 
   useEffect(() => {
     const bottomThreshold = 72
@@ -1131,18 +1215,23 @@ export default function RoomDetailPage() {
 
       const visibleBottom = y + window.innerHeight
       const atBottom = doc.scrollHeight - visibleBottom <= bottomThreshold
-      isAtBottomRef.current = atBottom
-      setIsAtBottom(atBottom)
-      if (atBottom) setNewMsgCount(0)
+      if (isAtBottomRef.current !== atBottom) {
+        isAtBottomRef.current = atBottom
+        setIsAtBottom(atBottom)
+        if (atBottom) setNewMsgCount(0)
+      }
 
+      let nextFab = showScrollTopFabRef.current
       if (y <= topThreshold || atBottom) {
-        setShowScrollTopFab(false)
+        nextFab = false
       } else if (delta < -directionThreshold) {
-        // 위로 스와이프(이전 메시지) = scrollY 감소 → TOP 노출
-        setShowScrollTopFab(true)
+        nextFab = true
       } else if (delta > directionThreshold) {
-        // 아래로 스와이프(최신 쪽) = scrollY 증가 → TOP 숨김
-        setShowScrollTopFab(false)
+        nextFab = false
+      }
+      if (showScrollTopFabRef.current !== nextFab) {
+        showScrollTopFabRef.current = nextFab
+        setShowScrollTopFab(nextFab)
       }
     }
 
@@ -1174,11 +1263,19 @@ export default function RoomDetailPage() {
     }
     scrollAfterOwnSendRef.current = false
     suppressNextNewMsgBadgeRef.current = true
-    scrollToBottom('auto')
-    requestAnimationFrame(() => {
+    const mobile =
+      typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+    if (!mobile) {
       scrollToBottom('auto')
-      composeTextareaRef.current?.focus({ preventScroll: true })
-    })
+      requestAnimationFrame(() => {
+        scrollToBottom('auto')
+        composeTextareaRef.current?.focus({ preventScroll: true })
+      })
+    } else {
+      requestAnimationFrame(() => {
+        composeTextareaRef.current?.focus({ preventScroll: true })
+      })
+    }
   }, [fetcher.state, fetcher.data?.message?.id, scrollToBottom])
 
   const lastMsgId = sortedMessages.at(-1)?.id
@@ -1260,12 +1357,10 @@ export default function RoomDetailPage() {
         </div>
       ) : null}
 
+      <div className='openchat-room-sticky-stack bg-white dark:bg-[#161a25]'>
       <div
-        className={[
-          'openchat-room-sticky-head sticky z-[38] flex min-w-0 items-center gap-3 border-b border-[#e5e8ed] bg-white px-4 py-3',
-          'dark:border-white/10 dark:bg-[#161a25]',
-          'top-[var(--app-header-h)]',
-        ].join(' ')}
+        ref={roomStickyHeadRef}
+        className='openchat-room-sticky-head flex min-w-0 items-center gap-3 border-b border-[#e5e8ed] px-4 py-3 dark:border-white/10'
       >
         <button
           type='button'
@@ -1301,34 +1396,53 @@ export default function RoomDetailPage() {
           </p>
         </div>
         <div className='flex shrink-0 items-center gap-0.5'>
-          {typeof Notification !== 'undefined' && canViewChatHistory ? (
-            notifPerm === 'default' ? (
-              <button
-                type='button'
-                className='inline-flex h-9 w-9 items-center justify-center rounded-full text-[#949ba4] transition hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100'
-                title='멘션 알림 허용'
-                aria-label='멘션 알림 허용'
-                onClick={() => {
-                  void Notification.requestPermission().then((p) => setNotifPerm(p))
-                }}
-              >
-                <svg viewBox='0 0 24 24' className='h-5 w-5' fill='none' stroke='currentColor' strokeWidth='1.8' aria-hidden>
-                  <path d='M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9' strokeLinecap='round' strokeLinejoin='round' />
-                  <path d='M13.73 21a2 2 0 0 1-3.46 0' strokeLinecap='round' strokeLinejoin='round' />
-                </svg>
-              </button>
-            ) : notifPerm === 'granted' ? (
-              <span
-                className='inline-flex h-9 w-9 items-center justify-center text-emerald-600 dark:text-emerald-400'
-                title='멘션 알림 켬'
-                aria-label='멘션 알림 켬'
-              >
-                <svg viewBox='0 0 24 24' className='h-5 w-5' fill='none' stroke='currentColor' strokeWidth='1.8' aria-hidden>
-                  <path d='M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9' strokeLinecap='round' strokeLinejoin='round' />
-                  <path d='M13.73 21a2 2 0 0 1-3.46 0' strokeLinecap='round' strokeLinejoin='round' />
-                </svg>
-              </span>
-            ) : null
+          {moderatorTabs.length > 0 ? (
+            <button
+              type='button'
+              className={[
+                'relative inline-flex h-9 items-center gap-1 rounded-full px-2.5 text-xs font-medium transition sm:px-3',
+                moderatorPanelOpen
+                  ? 'bg-[#5C87FF]/15 text-[#4a6bcc] dark:text-[#BFD0FF]'
+                  : 'text-[#949ba4] hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100',
+              ].join(' ')}
+              aria-expanded={moderatorPanelOpen}
+              aria-controls='openchat-moderator-panel'
+              title={moderatorPanelOpen ? '멤버 관리 닫기' : '멤버 관리'}
+              onClick={() => setModeratorPanelOpen((open) => !open)}
+            >
+              <svg viewBox='0 0 24 24' className='h-4 w-4 shrink-0' fill='none' stroke='currentColor' strokeWidth='1.8' aria-hidden>
+                <path d='M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' strokeLinecap='round' strokeLinejoin='round' />
+                <circle cx='9' cy='7' r='4' />
+                <path d='M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' strokeLinecap='round' strokeLinejoin='round' />
+              </svg>
+              <span className='hidden sm:inline'>관리</span>
+              {room.policy === 'gated_open' && pendingNicknames.length > 0 ? (
+                <span className='absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white'>
+                  {pendingNicknames.length > 9 ? '9+' : pendingNicknames.length}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
+          {canViewChatHistory ? (
+            <button
+              type='button'
+              className={[
+                'relative inline-flex h-9 w-9 items-center justify-center rounded-full transition',
+                mentionNotifOn
+                  ? 'text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400'
+                  : 'text-[#949ba4] hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100',
+              ].join(' ')}
+              title={mentionNotifOn ? '멘션 알림 끄기' : '멘션 알림 켜기'}
+              aria-label={mentionNotifOn ? '멘션 알림 끄기' : '멘션 알림 켜기'}
+              aria-pressed={mentionNotifOn}
+              onClick={() => void handleMentionNotifClick()}
+            >
+              <svg viewBox='0 0 24 24' className='h-5 w-5' fill='none' stroke='currentColor' strokeWidth='1.8' aria-hidden>
+                <path d='M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9' strokeLinecap='round' strokeLinejoin='round' />
+                <path d='M13.73 21a2 2 0 0 1-3.46 0' strokeLinecap='round' strokeLinejoin='round' />
+                {!mentionNotifOn ? <path d='M4 4l16 16' strokeLinecap='round' /> : null}
+              </svg>
+            </button>
           ) : null}
           <Link
             to='/rooms'
@@ -1345,26 +1459,10 @@ export default function RoomDetailPage() {
               />
             </svg>
           </Link>
-          {isOwner ? (
-            <button
-              type='button'
-              className='inline-flex h-9 w-9 items-center justify-center rounded-full text-rose-500 transition hover:bg-rose-50 dark:hover:bg-rose-950/40'
-              disabled={deleteRoomBusy}
-              aria-label='방 삭제'
-              title='방 삭제'
-              onClick={() => void handleDeleteRoom()}
-            >
-              <svg viewBox='0 0 24 24' className='h-5 w-5' fill='none' stroke='currentColor' strokeWidth='1.8' aria-hidden>
-                <path d='M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6' strokeLinecap='round' strokeLinejoin='round' />
-              </svg>
-            </button>
-          ) : null}
+        </div>
         </div>
       </div>
-
-      {deleteRoomError ? (
-        <div className='rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100'>{deleteRoomError}</div>
-      ) : null}
+      <div className='openchat-room-sticky-stack-spacer' aria-hidden />
 
       {room.policy !== 'open_link' && membership !== 'member' ? (
         <div className='card mx-4 overflow-hidden'>
@@ -1450,10 +1548,21 @@ export default function RoomDetailPage() {
         </div>
       ) : null}
 
-      {moderatorTabs.length > 0 ? (
-        <div className='card mx-4 overflow-hidden p-0'>
+      {adminError ? (
+        <div className='rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200'>{adminError}</div>
+      ) : null}
+
+      {moderatorPanelOpen && moderatorTabs.length > 0 ? (
+        <div
+          className='openchat-moderator-overlay'
+          role='dialog'
+          aria-modal='true'
+          aria-label='방 관리'
+        >
+          <div id='openchat-moderator-panel' className='openchat-moderator-panel'>
+          <div className='flex items-stretch border-b border-slate-200 dark:border-white/10'>
           {moderatorTabs.length > 1 ? (
-            <div className='flex border-b border-slate-200 dark:border-white/10' role='tablist' aria-label='방 운영'>
+            <div className='flex min-w-0 flex-1' role='tablist' aria-label='방 운영'>
               {moderatorTabs.map((tab) => {
                 const active = moderatorPanelTab === tab.id
                 return (
@@ -1482,10 +1591,23 @@ export default function RoomDetailPage() {
               })}
             </div>
           ) : (
-            <div className='border-b border-slate-200 dark:border-white/10 px-4 py-2.5 text-xs font-medium text-slate-600 dark:text-zinc-400'>{moderatorTabs[0]?.label}</div>
+            <div className='flex min-w-0 flex-1 items-center px-4 py-2.5 text-xs font-medium text-slate-600 dark:text-zinc-400'>
+              {moderatorTabs[0]?.label}
+            </div>
           )}
+          <button
+            type='button'
+            className='inline-flex shrink-0 items-center justify-center border-l border-slate-200 px-3 text-[#949ba4] transition hover:bg-slate-100 hover:text-[#191f28] dark:border-white/10 dark:hover:bg-white/5 dark:hover:text-zinc-100'
+            aria-label='멤버 관리 닫기'
+            onClick={() => setModeratorPanelOpen(false)}
+          >
+            <svg viewBox='0 0 24 24' className='h-5 w-5' fill='none' stroke='currentColor' strokeWidth='1.8' aria-hidden>
+              <path d='M18 6L6 18M6 6l12 12' strokeLinecap='round' strokeLinejoin='round' />
+            </svg>
+          </button>
+          </div>
 
-          <div className='p-4 md:p-5'>
+          <div className='openchat-moderator-panel-body p-4 md:p-5'>
             {moderatorPanelTab === 'invite' && room.policy === 'invite' && inviteMeta ? (
               <div>
                 <div className='flex items-start justify-between gap-3'>
@@ -1691,12 +1813,33 @@ export default function RoomDetailPage() {
                 ) : null}
               </div>
             ) : null}
-          </div>
-        </div>
-      ) : null}
 
-      {adminError ? (
-        <div className='rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200'>{adminError}</div>
+            {isOwner ? (
+              <div className='mt-6 border-t border-slate-200 pt-4 dark:border-white/10'>
+                <div className='text-xs font-medium text-slate-700 dark:text-zinc-300'>방장 전용</div>
+                <p className='mt-1 text-xs text-slate-500 dark:text-zinc-500'>
+                  방을 삭제하면 메시지·멤버 데이터가 모두 사라지며 복구할 수 없어요.
+                </p>
+                {deleteRoomError ? <p className='mt-2 text-sm text-rose-400'>{deleteRoomError}</p> : null}
+                <button
+                  type='button'
+                  className='btn-danger-ghost mt-3 h-10 px-4 text-sm'
+                  disabled={deleteRoomBusy}
+                  onClick={() => void handleDeleteRoom()}
+                >
+                  {deleteRoomBusy ? '삭제 중…' : '방 삭제'}
+                </button>
+              </div>
+            ) : null}
+          </div>
+          </div>
+          <button
+            type='button'
+            className='openchat-moderator-overlay-scrim'
+            aria-label='멤버 관리 닫기'
+            onClick={() => setModeratorPanelOpen(false)}
+          />
+        </div>
       ) : null}
 
       <div ref={chatPanelRef} className='openchat-chat-panel relative min-w-0 overflow-hidden'>
@@ -2299,6 +2442,7 @@ export default function RoomDetailPage() {
                           placeholder='표시 이름'
                           maxLength={32}
                           aria-label='이 방 표시 이름'
+                          enterKeyHint='done'
                         />
                         <button
                           type='button'

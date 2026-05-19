@@ -825,6 +825,39 @@ export async function regenerateInviteCode(
   return { code, expiresAt: exp.toDate().toISOString() }
 }
 
+function memberRowFromRecord(data: Record<string, unknown>): RoomMemberRow | null {
+  const status = data.status as RoomMemberRow['status']
+  const nickname = String(data.nickname ?? '')
+  const displayName = String(data.displayName ?? nickname).trim() || nickname
+  const clientIdRaw = data.clientId
+  const clientId = typeof clientIdRaw === 'string' && clientIdRaw.trim() ? clientIdRaw.trim() : undefined
+  if (status === 'member' || status === 'pending' || status === 'rejected') {
+    return { nickname, displayName, clientId, status }
+  }
+  return null
+}
+
+function memberRowsFromRecordDocs(docs: { data: () => DocumentData }[]): RoomMemberRow[] {
+  return docs
+    .map((d) => memberRowFromRecord(d.data() as Record<string, unknown>))
+    .filter(Boolean) as RoomMemberRow[]
+}
+
+function listRoomMembersFromSnapshots(
+  roomId: string,
+  ownerNickname: string,
+  roomData: Record<string, unknown>,
+  memberDocs: { data: () => DocumentData }[],
+): ListRoomMembersResponse {
+  return {
+    roomId,
+    ownerNickname,
+    managers: (roomData.managers as string[]) ?? [],
+    blocked: (roomData.blocked as string[]) ?? [],
+    members: memberRowsFromRecordDocs(memberDocs),
+  }
+}
+
 export async function listRoomMembers(
   roomId: string,
   actorNickname: string,
@@ -833,27 +866,45 @@ export async function listRoomMembers(
   const room = await getRoom(roomId)
   if (!(await isModeratorFull(room, roomId, actorNickname, clientId))) throw new Error('Only moderators can list members')
   const snap = await getDocs(membersCol(roomId))
-  const members: RoomMemberRow[] = snap.docs
-    .map((d) => {
-      const data = d.data() as Record<string, unknown>
-      const status = data.status as RoomMemberRow['status']
-      const nickname = String(data.nickname ?? '')
-      const displayName = String(data.displayName ?? nickname).trim() || nickname
-      const clientIdRaw = data.clientId
-      const clientId = typeof clientIdRaw === 'string' && clientIdRaw.trim() ? clientIdRaw.trim() : undefined
-      if (status === 'member' || status === 'pending' || status === 'rejected') {
-        return { nickname, displayName, clientId, status }
-      }
-      return null
-    })
-    .filter(Boolean) as RoomMemberRow[]
   const rdata = (await getDoc(roomRef(roomId))).data() as Record<string, unknown>
-  return {
-    roomId,
-    ownerNickname: room.ownerNickname,
-    managers: (rdata.managers as string[]) ?? [],
-    blocked: (rdata.blocked as string[]) ?? [],
-    members,
+  return listRoomMembersFromSnapshots(roomId, room.ownerNickname, rdata ?? {}, snap.docs)
+}
+
+/** 방장·매니저: memberRecords·방 문서 변경 시 멤버 목록 실시간 반영 */
+export function subscribeRoomMembers(
+  roomId: string,
+  onUpdate: (data: ListRoomMembersResponse) => void,
+): () => void {
+  let roomData: Record<string, unknown> = {}
+  let ownerNickname = ''
+  let memberDocs: { data: () => DocumentData }[] = []
+
+  const emit = () => {
+    onUpdate(listRoomMembersFromSnapshots(roomId, ownerNickname, roomData, memberDocs))
+  }
+
+  const unsubRoom = onSnapshot(
+    roomRef(roomId),
+    (snap) => {
+      roomData = (snap.data() as Record<string, unknown>) ?? {}
+      ownerNickname = String(roomData.ownerNickname ?? '').trim()
+      emit()
+    },
+    (err) => console.error('[openchat-firestore] subscribeRoomMembers room', err),
+  )
+
+  const unsubMembers = onSnapshot(
+    membersCol(roomId),
+    (snap) => {
+      memberDocs = snap.docs
+      emit()
+    },
+    (err) => console.error('[openchat-firestore] subscribeRoomMembers members', err),
+  )
+
+  return () => {
+    unsubRoom()
+    unsubMembers()
   }
 }
 

@@ -297,7 +297,9 @@ textarea.input {
 @media (max-width: 767px) {
   .input,
   textarea.input,
-  select.input {
+  select.input,
+  .openchat-compose-input,
+  .openchat-compose-nickname-input {
     font-size: 1rem;
   }
 }
@@ -861,11 +863,6 @@ html[data-theme='dark'] .openchat-compose-nickname-label {
   outline: none;
   box-shadow: none;
 }
-@media (max-width: 767px) {
-  .openchat-compose-toolbar .openchat-compose-nickname-input {
-    font-size: 0.75rem;
-  }
-}
 .openchat-compose-nickname-slot--expanded {
   min-width: 0;
   flex: 1 1 0%;
@@ -1281,19 +1278,102 @@ html[data-theme='dark'] .openchat-message-reaction-picker-btn--active {
   box-shadow: inset 0 0 0 1px rgba(126, 176, 255, 0.55);
 }
 
-/* iOS: sticky/fixed + backdrop-blur 스크롤 시 떨림 완화 */
-.openchat-room-sticky-head,
-.openchat-compose-dock {
-  transform: translateZ(0);
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
+/* 방 제목: 앱 헤더 바로 아래 sticky (데스크톱) */
+.openchat-room-sticky-stack {
+  position: sticky;
+  top: var(--app-header-h);
+  z-index: 38;
 }
 
+.openchat-room-sticky-head {
+  --openchat-room-head-h: 4.25rem;
+}
+
+.openchat-room-sticky-stack-spacer {
+  display: none;
+}
+
+/* 관리 패널: 채팅 리스트 위 오버레이 (입력창 제외) */
+.openchat-moderator-overlay {
+  position: fixed;
+  z-index: 36;
+  top: calc(var(--app-header-h) + var(--openchat-room-head-h, 4.25rem));
+  right: 0;
+  bottom: calc(
+    var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-compose-gap, 0.5rem) +
+      env(safe-area-inset-bottom, 0px)
+  );
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.openchat-moderator-overlay-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: rgba(15, 23, 42, 0.42);
+  cursor: default;
+  pointer-events: auto;
+}
+
+html[data-theme='dark'] .openchat-moderator-overlay-scrim {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.openchat-moderator-panel {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  max-height: min(72%, 28rem);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid #e5e8ed;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  pointer-events: auto;
+}
+
+html[data-theme='dark'] .openchat-moderator-panel {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  background: #161a25;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+}
+
+.openchat-moderator-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 1024px) {
+  .openchat-room-layout .openchat-moderator-overlay {
+    left: max(0px, calc((100vw - 1024px) / 2 + var(--openchat-sidebar-w)));
+    right: max(0px, calc((100vw - 1024px) / 2));
+  }
+}
+
+/* iOS: 모바일 sticky 이중 합성·blur 로 스크롤 시 방 제목 영역 떨림 → fixed + spacer */
 @media (max-width: 767px) {
-  .openchat-room-sticky-head,
-  .openchat-compose-dock {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+  .openchat-room-layout .openchat-room-sticky-stack {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: var(--app-header-h);
+    z-index: 38;
+  }
+
+  .openchat-room-layout .openchat-room-sticky-stack-spacer {
+    display: block;
+    height: var(--openchat-room-head-h, 4.25rem);
+    flex-shrink: 0;
+    pointer-events: none;
   }
 
   .openchat-compose-dock {
