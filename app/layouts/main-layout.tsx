@@ -46,11 +46,11 @@ function AuthBadge({ auth }: { auth: OpenChatAuth | null }) {
 
 const TopNav = forwardRef<HTMLElement>(function TopNav(_, ref) {
   const auth = getAuthFromCookie()
-  const oauthLoginUrl = (import.meta.env.VITE_OAUTH_LOGIN_URL as string | undefined) || ''
 
   return (
     <header
       ref={ref}
+      data-openchat-app-header
       className='glass sticky top-0 z-40 border-b border-slate-200 dark:border-white/5 pt-[env(safe-area-inset-top,0px)]'
     >
       <div className='mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3'>
@@ -59,13 +59,6 @@ const TopNav = forwardRef<HTMLElement>(function TopNav(_, ref) {
         <div className='flex items-center gap-2'>
           <ThemeToggle />
           <AuthBadge auth={auth} />
-          {!auth && oauthLoginUrl ? (
-            <a href={oauthLoginUrl} className='btn-ghost h-9 px-3 text-xs'>
-              로그인
-            </a>
-          ) : !auth ? (
-            <span className='hidden text-xs text-slate-500 dark:text-zinc-500 lg:inline'>VITE_OAUTH_LOGIN_URL 필요</span>
-          ) : null}
         </div>
       </div>
     </header>
