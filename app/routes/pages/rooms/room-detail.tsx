@@ -353,9 +353,9 @@ export default function RoomDetailPage() {
     if (!isModerator) return [] as { id: ModeratorPanelTab; label: string; badge?: number }[]
     const tabs: { id: ModeratorPanelTab; label: string; badge?: number }[] = []
     if (room.policy === 'invite' && inviteMeta) tabs.push({ id: 'invite', label: '초대 코드' })
-    if (room.policy === 'gated_open') tabs.push({ id: 'requests', label: '가입 요청', badge: pendingNicknames.length })
+    if (room.policy === 'gated_open') tabs.push({ id: 'requests', label: '가입', badge: pendingNicknames.length })
     if (memberDirectory) {
-      tabs.push({ id: 'members', label: '멤버 · 차단' })
+      tabs.push({ id: 'members', label: '멤버' })
     }
     return tabs
   }, [isModerator, room.policy, inviteMeta, memberDirectory, pendingNicknames.length])
@@ -1754,9 +1754,9 @@ export default function RoomDetailPage() {
           aria-label='방 관리'
         >
           <div id='openchat-moderator-panel' className='openchat-moderator-panel'>
-          <div className='flex items-stretch border-b border-slate-200 dark:border-white/10'>
+          <div className='openchat-mod-head'>
           {moderatorTabs.length > 1 ? (
-            <div className='flex min-w-0 flex-1' role='tablist' aria-label='방 운영'>
+            <div className='openchat-mod-tabs' role='tablist' aria-label='방 운영'>
               {moderatorTabs.map((tab) => {
                 const active = moderatorPanelTab === tab.id
                 return (
@@ -1766,32 +1766,24 @@ export default function RoomDetailPage() {
                     role='tab'
                     aria-selected={active}
                     onClick={() => setModeratorPanelTab(tab.id)}
-                    className={[
-                      'relative flex-1 min-w-0 px-2 py-2.5 text-center text-xs font-medium transition sm:px-3 sm:text-sm',
-                      active ? 'text-slate-900 dark:text-white' : 'text-slate-500 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-200',
-                    ].join(' ')}
+                    className={['openchat-mod-tab', active ? 'openchat-mod-tab--active' : ''].filter(Boolean).join(' ')}
                   >
-                    {active ? <span className='absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-[#5C87FF]' /> : null}
-                    <span className='relative z-10 inline-flex max-w-full flex-wrap items-center justify-center gap-1'>
-                      <span className='truncate'>{tab.label}</span>
-                      {tab.badge !== undefined && tab.badge > 0 ? (
-                        <span className='shrink-0 rounded-full bg-amber-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200'>
-                          {tab.badge}
-                        </span>
-                      ) : null}
-                    </span>
+                    <span className='truncate'>{tab.label}</span>
+                    {tab.badge !== undefined && tab.badge > 0 ? (
+                      <span className='openchat-mod-tab-badge'>{tab.badge}</span>
+                    ) : null}
                   </button>
                 )
               })}
             </div>
           ) : (
-            <div className='flex min-w-0 flex-1 items-center px-4 py-2.5 text-xs font-medium text-slate-600 dark:text-zinc-400'>
-              {moderatorTabs[0]?.label}
+            <div className='openchat-mod-tabs'>
+              <span className='openchat-mod-tab openchat-mod-tab--active'>{moderatorTabs[0]?.label}</span>
             </div>
           )}
           <button
             type='button'
-            className='inline-flex shrink-0 items-center justify-center border-l border-slate-200 px-3 text-[#949ba4] transition hover:bg-slate-100 hover:text-[#191f28] dark:border-white/10 dark:hover:bg-white/5 dark:hover:text-zinc-100'
+            className='openchat-mod-close'
             aria-label='멤버 관리 닫기'
             onClick={() => setModeratorPanelOpen(false)}
           >
@@ -1801,7 +1793,7 @@ export default function RoomDetailPage() {
           </button>
           </div>
 
-          <div className='openchat-moderator-panel-body p-4 md:p-5'>
+          <div className='openchat-moderator-panel-body openchat-mod-body'>
             {moderatorPanelTab === 'invite' && room.policy === 'invite' && inviteMeta ? (
               <div>
                 <div className='flex items-start justify-between gap-3'>
@@ -1831,27 +1823,29 @@ export default function RoomDetailPage() {
 
             {moderatorPanelTab === 'requests' && room.policy === 'gated_open' ? (
               <div>
-                <p className='text-xs text-slate-500 dark:text-zinc-500'>대기 중인 신청자를 승인하거나 거절할 수 있어요.</p>
                 {pendingNicknames.length === 0 ? (
-                  <div className='mt-3 rounded-xl border border-slate-200 dark:border-white/5 bg-slate-100 dark:bg-black/20 px-4 py-5 text-center text-sm text-slate-500 dark:text-zinc-500'>
-                    대기 중인 신청이 없어요.
-                  </div>
+                  <p className='openchat-mod-empty'>대기 중인 가입 신청이 없어요.</p>
                 ) : (
-                  <ul className='mt-3 max-h-[min(40vh,20rem)] space-y-2 overflow-y-auto pr-1'>
+                  <ul className='openchat-mod-list'>
                     {pendingNicknames.map((n) => (
-                      <li
-                        key={n}
-                        className='flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-white/5 bg-slate-100 dark:bg-black/20 px-3 py-2'
-                      >
-                        <div className='flex items-center gap-2 text-sm'>
-                          <Avatar name={n} />
-                          <span className='text-slate-700 dark:text-zinc-200'>{n}</span>
+                      <li key={n} className='openchat-mod-row'>
+                        <div className='openchat-mod-row-main'>
+                          <Avatar name={n} size={32} />
+                          <span className='openchat-mod-row-name'>{n}</span>
                         </div>
-                        <div className='flex gap-2'>
-                          <button type='button' className='btn-primary h-9 px-3 text-xs' onClick={() => void handleApprove(n)}>
+                        <div className='openchat-mod-actions'>
+                          <button
+                            type='button'
+                            className='openchat-mod-btn openchat-mod-btn--primary'
+                            onClick={() => void handleApprove(n)}
+                          >
                             승인
                           </button>
-                          <button type='button' className='btn-ghost h-9 px-3 text-xs' onClick={() => void handleReject(n)}>
+                          <button
+                            type='button'
+                            className='openchat-mod-btn openchat-mod-btn--ghost'
+                            onClick={() => void handleReject(n)}
+                          >
                             거절
                           </button>
                         </div>
@@ -1864,17 +1858,16 @@ export default function RoomDetailPage() {
 
             {moderatorPanelTab === 'members' && memberDirectory ? (
               <div>
-                <p className='text-xs text-slate-500 dark:text-zinc-500'>강퇴·차단, 방장 위임, 매니저 지정(방장만)</p>
                 {isOwner ? (
-                  <div className='mt-3 grid gap-2 md:grid-cols-2'>
-                    <div className='flex min-w-0 gap-2'>
+                  <div className='openchat-mod-toolbar'>
+                    <div className='openchat-mod-toolbar-row'>
                       <select
                         value={delegateTo}
                         onChange={(e) => setDelegateTo(e.target.value)}
                         className='input min-w-0 flex-1'
                         aria-label='방장 위임 대상'
                       >
-                        <option value=''>방장 위임할 멤버</option>
+                        <option value=''>방장 위임</option>
                         {ownerAssignableMembers.map((m) => {
                           const label = memberAdminLabel(m)
                           return (
@@ -1886,21 +1879,21 @@ export default function RoomDetailPage() {
                       </select>
                       <button
                         type='button'
-                        className='btn-ghost shrink-0'
+                        className='openchat-mod-btn openchat-mod-btn--ghost'
                         disabled={!delegateTo.trim()}
                         onClick={() => void handleDelegate()}
                       >
                         위임
                       </button>
                     </div>
-                    <div className='flex min-w-0 gap-2'>
+                    <div className='openchat-mod-toolbar-row'>
                       <select
                         value={managerTarget}
                         onChange={(e) => setManagerTarget(e.target.value)}
                         className='input min-w-0 flex-1'
                         aria-label='매니저 지정 대상'
                       >
-                        <option value=''>매니저로 지정할 멤버</option>
+                        <option value=''>매니저 지정</option>
                         {ownerAssignableMembers
                           .filter((m) => !memberMatchesManagerList(memberDirectory.managers, m))
                           .map((m) => {
@@ -1914,7 +1907,7 @@ export default function RoomDetailPage() {
                       </select>
                       <button
                         type='button'
-                        className='btn-ghost shrink-0'
+                        className='openchat-mod-btn openchat-mod-btn--ghost'
                         disabled={!managerTarget.trim()}
                         onClick={() => void handleAddManager()}
                       >
@@ -1924,57 +1917,48 @@ export default function RoomDetailPage() {
                   </div>
                 ) : null}
 
-                <ul className='mt-3 max-h-[min(50vh,24rem)] space-y-1.5 overflow-y-auto pr-1'>
+                <ul className='openchat-mod-list'>
                   {memberDirectory.members.map((row) => {
                     const rowLabel = row.displayName?.trim() || row.nickname
                     const isRowOwner = isOpenchatRoomOwner(room, row.nickname, row.clientId)
                     const isRowManager = memberMatchesManagerList(memberDirectory.managers, row)
+                    const statusLabel =
+                      row.status === 'member' ? null : row.status === 'pending' ? '대기' : '거절'
                     return (
-                      <li
-                        key={row.clientId ?? row.nickname}
-                        className='flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 dark:border-white/5 bg-slate-100 dark:bg-black/15 px-3 py-2 text-sm'
-                      >
-                        <div className='flex items-center gap-2'>
-                          <Avatar name={rowLabel} />
-                          <span className='text-slate-800 dark:text-zinc-100'>{rowLabel}</span>
-                          <span className='text-[11px] text-slate-500 dark:text-zinc-500'>
-                            {row.status === 'member' ? '멤버' : row.status === 'pending' ? '대기' : '거절됨'}
-                          </span>
-                          {isRowOwner ? <span className='chip chip-brand text-[10px]'>방장</span> : null}
-                          {isRowManager && !isRowOwner ? <span className='chip chip-brand text-[10px]'>매니저</span> : null}
+                      <li key={row.clientId ?? row.nickname} className='openchat-mod-row'>
+                        <div className='openchat-mod-row-main'>
+                          <Avatar name={rowLabel} size={32} />
+                          <span className='openchat-mod-row-name'>{rowLabel}</span>
+                          {isRowOwner ? <span className='openchat-mod-tag'>방장</span> : null}
+                          {isRowManager && !isRowOwner ? <span className='openchat-mod-tag'>매니저</span> : null}
+                          {statusLabel ? <span className='openchat-mod-row-meta'>{statusLabel}</span> : null}
                         </div>
-                        <div className='flex flex-wrap items-center gap-1'>
+                        <div className='openchat-mod-actions'>
                           {row.status === 'member' && !isRowOwner ? (
                             <>
-                              <button type='button' className='btn-danger-ghost h-7 px-2 text-[11px]' onClick={() => void handleKick(row)}>
+                              <button
+                                type='button'
+                                className='openchat-mod-btn openchat-mod-btn--danger'
+                                onClick={() => void handleKick(row)}
+                              >
                                 강퇴
                               </button>
-                              <button type='button' className='btn-danger-ghost h-7 px-2 text-[11px]' onClick={() => void handleBlock(row)}>
+                              <button
+                                type='button'
+                                className='openchat-mod-btn openchat-mod-btn--danger'
+                                onClick={() => void handleBlock(row)}
+                              >
                                 차단
                               </button>
                             </>
                           ) : null}
-                          {isOwner && row.status === 'member' && !isRowOwner && !isRowManager ? (
-                            <>
-                              <button
-                                type='button'
-                                className='btn-ghost h-7 px-2 text-[11px]'
-                                onClick={() => void handleDelegateToRow(row)}
-                              >
-                                방장 위임
-                              </button>
-                              <button
-                                type='button'
-                                className='btn-ghost h-7 px-2 text-[11px]'
-                                onClick={() => void handleAddManager(memberAdminLabel(row))}
-                              >
-                                매니저
-                              </button>
-                            </>
-                          ) : null}
                           {isOwner && isRowManager && !isRowOwner ? (
-                            <button type='button' className='btn-ghost h-7 px-2 text-[11px]' onClick={() => void handleRemoveManager(row)}>
-                              매니저 해제
+                            <button
+                              type='button'
+                              className='openchat-mod-btn openchat-mod-btn--ghost'
+                              onClick={() => void handleRemoveManager(row)}
+                            >
+                              해제
                             </button>
                           ) : null}
                         </div>
@@ -1984,31 +1968,35 @@ export default function RoomDetailPage() {
                 </ul>
 
                 {memberDirectory.blocked.length ? (
-                  <div className='mt-4 border-t border-slate-200 dark:border-white/10 pt-3'>
-                    <div className='text-xs font-medium text-slate-600 dark:text-zinc-400'>차단 목록</div>
-                    <ul className='mt-2 max-h-40 space-y-1 overflow-y-auto pr-1'>
+                  <>
+                    <p className='openchat-mod-section-label'>차단</p>
+                    <ul className='openchat-mod-list'>
                       {memberDirectory.blocked.map((n) => {
                         const blockedLabel =
                           memberDirectory.members.find((m) => m.nickname === n)?.displayName?.trim() || n
                         return (
-                        <li key={n} className='flex items-center justify-between text-sm text-slate-600 dark:text-zinc-300'>
-                          <span className='flex items-center gap-2'>
-                            <Avatar name={blockedLabel} size={24} />
-                            {blockedLabel}
-                          </span>
-                          <button type='button' className='btn-ghost h-7 px-2 text-[11px]' onClick={() => void handleUnblock(n)}>
-                            해제
-                          </button>
-                        </li>
+                          <li key={n} className='openchat-mod-row'>
+                            <div className='openchat-mod-row-main'>
+                              <Avatar name={blockedLabel} size={28} />
+                              <span className='openchat-mod-row-name'>{blockedLabel}</span>
+                            </div>
+                            <button
+                              type='button'
+                              className='openchat-mod-btn openchat-mod-btn--ghost'
+                              onClick={() => void handleUnblock(n)}
+                            >
+                              해제
+                            </button>
+                          </li>
                         )
                       })}
                     </ul>
-                  </div>
+                  </>
                 ) : null}
               </div>
             ) : null}
 
-            {isOwner ? (
+                        {isOwner ? (
               <div className='mt-6 border-t border-slate-200 pt-4 dark:border-white/10'>
                 <div className='text-xs font-medium text-slate-700 dark:text-zinc-300'>방장 전용</div>
                 <p className='mt-1 text-xs text-slate-500 dark:text-zinc-500'>

@@ -1858,6 +1858,7 @@ html.openchat-room-chat-active .openchat-room-layout .openchat-room-sticky-stack
   left: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   pointer-events: none;
 }
 
@@ -1880,8 +1881,9 @@ html[data-theme='dark'] .openchat-moderator-overlay-scrim {
 .openchat-moderator-panel {
   position: relative;
   z-index: 1;
-  flex-shrink: 0;
-  max-height: min(72%, 28rem);
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1898,10 +1900,276 @@ html[data-theme='dark'] .openchat-moderator-panel {
 }
 
 .openchat-moderator-panel-body {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+/* 방 관리 패널 — 가입 / 멤버 탭 (심플 리스트) */
+.openchat-mod-head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px solid #eceff4;
+  background: #f8f9fb;
+}
+
+html[data-theme='dark'] .openchat-mod-head {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.openchat-mod-tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 0.25rem;
+  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+}
+
+.openchat-mod-tab {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #949ba4;
+  background: transparent;
+  transition: background 0.15s, color 0.15s;
+}
+
+.openchat-mod-tab:hover {
+  color: #4e5968;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+html[data-theme='dark'] .openchat-mod-tab:hover {
+  color: #c4c9d0;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.openchat-mod-tab--active {
+  color: #191f28;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+html[data-theme='dark'] .openchat-mod-tab--active {
+  color: #f3f4f6;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+
+.openchat-mod-tab-badge {
+  margin-left: 0.35rem;
+  border-radius: 999px;
+  background: #5c87ff;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #fff;
+  vertical-align: 0.05em;
+}
+
+.openchat-mod-close {
+  display: inline-flex;
+  shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  border: none;
+  border-left: 1px solid #eceff4;
+  background: transparent;
+  color: #949ba4;
+  transition: background 0.15s, color 0.15s;
+}
+
+.openchat-mod-close:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: #191f28;
+}
+
+html[data-theme='dark'] .openchat-mod-close {
+  border-left-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .openchat-mod-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f3f4f6;
+}
+
+.openchat-mod-body {
+  padding: 0.75rem 1rem 1rem;
+}
+
+.openchat-mod-empty {
+  padding: 2rem 0.5rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: #949ba4;
+}
+
+.openchat-mod-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.openchat-mod-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid #f2f3f5;
+  padding: 0.625rem 0;
+}
+
+.openchat-mod-row:last-child {
+  border-bottom: none;
+}
+
+html[data-theme='dark'] .openchat-mod-row {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.openchat-mod-row-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.openchat-mod-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #191f28;
+}
+
+html[data-theme='dark'] .openchat-mod-row-name {
+  color: #e7ebf3;
+}
+
+.openchat-mod-row-meta {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  color: #949ba4;
+}
+
+.openchat-mod-tag {
+  flex-shrink: 0;
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #5c87ff;
+  background: rgba(92, 135, 255, 0.12);
+}
+
+html[data-theme='dark'] .openchat-mod-tag {
+  color: #9cb4ff;
+  background: rgba(92, 135, 255, 0.18);
+}
+
+.openchat-mod-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.openchat-mod-btn {
+  border: none;
+  border-radius: 0.375rem;
+  padding: 0.35rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  transition: background 0.12s, color 0.12s;
+}
+
+.openchat-mod-btn--primary {
+  color: #fff;
+  background: #5c87ff;
+}
+
+.openchat-mod-btn--primary:hover {
+  background: #4a75eb;
+}
+
+.openchat-mod-btn--ghost {
+  color: #4e5968;
+  background: #f2f3f5;
+}
+
+.openchat-mod-btn--ghost:hover {
+  background: #e8eaed;
+}
+
+html[data-theme='dark'] .openchat-mod-btn--ghost {
+  color: #c4c9d0;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .openchat-mod-btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.openchat-mod-btn--danger {
+  color: #e03e3e;
+  background: transparent;
+}
+
+.openchat-mod-btn--danger:hover {
+  background: rgba(224, 62, 62, 0.08);
+}
+
+.openchat-mod-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #f2f3f5;
+}
+
+html[data-theme='dark'] .openchat-mod-toolbar {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.openchat-mod-toolbar-row {
+  display: flex;
+  min-width: 0;
+  gap: 0.375rem;
+}
+
+.openchat-mod-toolbar-row .input {
+  min-height: 2.25rem;
+  flex: 1;
+  font-size: 0.8125rem;
+}
+
+.openchat-mod-toolbar-row .openchat-mod-btn {
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.openchat-mod-section-label {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #949ba4;
 }
 
 @media (min-width: 1024px) {
