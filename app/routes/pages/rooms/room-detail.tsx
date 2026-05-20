@@ -96,7 +96,13 @@ import {
 } from '@/services/openchat.service'
 import { subscribeRoomMessages } from '@/services/openchat-firestore.service'
 import { useFocusTrap } from '@/hooks/use-focus-trap'
-import { syncOpenchatKeyboardLayout, useOpenchatKeyboardOffset } from '@/hooks/use-openchat-keyboard-offset'
+import {
+  blurOpenchatCompose,
+  isOpenchatComposeFocused,
+  isOpenchatKeyboardLikelyOpen,
+  syncOpenchatKeyboardLayout,
+  useOpenchatKeyboardOffset,
+} from '@/hooks/use-openchat-keyboard-offset'
 import { isOpenchatMobileChatViewport } from '@/lib/openchat-mobile-chat'
 import { OpenchatToastHost } from '@/components/openchat-toast-host'
 import { RouteErrorFallback } from '@/components/route-error-fallback'
@@ -304,6 +310,7 @@ export default function RoomDetailPage() {
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [showScrollTopFab, setShowScrollTopFab] = useState(false)
   const scrollAfterOwnSendRef = useRef(false)
+  const keyboardWasOpenOnSendRef = useRef(false)
   /** 전송 직후 useLayoutEffect에서 스크롤 처리 시, 다음 lastMsgId effect의 "새 메시지" 배지 1회 생략 */
   const suppressNextNewMsgBadgeRef = useRef(false)
   const knownMemberClientIdsRef = useRef<Set<string> | null>(null)
@@ -693,8 +700,13 @@ export default function RoomDetailPage() {
       setReplyTo(null)
       setAttachments([])
       setSelectedSticker(null)
+      const retainFocus = keyboardWasOpenOnSendRef.current
       requestAnimationFrame(() => {
-        composeTextareaRef.current?.focus({ preventScroll: true })
+        if (!isOpenchatMobileChatViewport() || retainFocus) {
+          composeTextareaRef.current?.focus({ preventScroll: true })
+        } else {
+          blurOpenchatCompose()
+        }
         syncOpenchatKeyboardLayout(composeBarRef.current)
       })
     }
@@ -879,7 +891,9 @@ export default function RoomDetailPage() {
   const selectSticker = useCallback((emoji: string) => {
     setSelectedSticker(emoji)
     requestAnimationFrame(() => {
-      composeTextareaRef.current?.focus({ preventScroll: true })
+      if (!isOpenchatMobileChatViewport() || isOpenchatComposeFocused()) {
+        composeTextareaRef.current?.focus({ preventScroll: true })
+      }
       syncOpenchatKeyboardLayout(composeBarRef.current)
     })
   }, [])
@@ -1200,13 +1214,15 @@ export default function RoomDetailPage() {
     }
   }, [])
 
-  const maintainMobileComposeAfterSend = useCallback(() => {
+  const maintainMobileComposeAfterSend = useCallback((retainFocus: boolean) => {
     if (!isOpenchatMobileChatViewport()) return
 
-    const focusCompose = () => composeTextareaRef.current?.focus({ preventScroll: true })
-
     const tick = () => {
-      focusCompose()
+      if (retainFocus) {
+        composeTextareaRef.current?.focus({ preventScroll: true })
+      } else {
+        blurOpenchatCompose()
+      }
       syncOpenchatKeyboardLayout(composeBarRef.current)
       const chatScroll = chatScrollRef.current
       if (chatScroll) {
@@ -1232,9 +1248,12 @@ export default function RoomDetailPage() {
 
   const submitCompose = useCallback(() => {
     if (!canPost || !canSendCompose || fetcher.state !== 'idle') return
+    keyboardWasOpenOnSendRef.current = isOpenchatKeyboardLikelyOpen()
     scrollAfterOwnSendRef.current = true
     formRef.current?.requestSubmit()
-    composeTextareaRef.current?.focus({ preventScroll: true })
+    if (keyboardWasOpenOnSendRef.current) {
+      composeTextareaRef.current?.focus({ preventScroll: true })
+    }
     syncOpenchatKeyboardLayout(composeBarRef.current)
   }, [canPost, canSendCompose, fetcher.state])
 
@@ -1436,7 +1455,7 @@ export default function RoomDetailPage() {
         composeTextareaRef.current?.focus({ preventScroll: true })
       })
     } else {
-      maintainMobileComposeAfterSend()
+      maintainMobileComposeAfterSend(keyboardWasOpenOnSendRef.current)
     }
   }, [fetcher.state, fetcher.data?.message?.id, scrollToBottom, maintainMobileComposeAfterSend])
 
@@ -2381,6 +2400,7 @@ export default function RoomDetailPage() {
             className='flex flex-col gap-2.5 pb-3'
             method='post'
             onSubmit={() => {
+              keyboardWasOpenOnSendRef.current = isOpenchatKeyboardLikelyOpen()
               scrollAfterOwnSendRef.current = true
             }}
           >

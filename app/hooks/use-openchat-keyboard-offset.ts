@@ -17,6 +17,28 @@ function isComposeFocused() {
   return el instanceof HTMLElement && Boolean(el.closest('.openchat-compose-dock'))
 }
 
+/** 모바일 입력창(또는 compose 내부) 포커스 여부 */
+export function isOpenchatComposeFocused() {
+  return isComposeFocused()
+}
+
+/** 키보드가 올라와 있는 것으로 보이는지 (visualViewport + 포커스) */
+export function isOpenchatKeyboardLikelyOpen() {
+  if (typeof window === 'undefined') return false
+  if (!isOpenchatMobileChatViewport()) return false
+  if (isComposeFocused()) return true
+  const vv = window.visualViewport
+  if (!vv) return false
+  return vv.height < window.innerHeight * 0.85
+}
+
+export function blurOpenchatCompose() {
+  const el = document.activeElement
+  if (el instanceof HTMLElement && el.closest('.openchat-compose-dock')) {
+    el.blur()
+  }
+}
+
 function resolveComposeDock(explicit?: HTMLElement | null) {
   if (explicit) return explicit
   const el = document.querySelector('.openchat-compose-dock')
