@@ -1,3 +1,5 @@
+import { ensureOpenchatNickname } from '@/lib/openchat-display-name'
+
 const CLIENT_ID_KEY = 'openchat.clientId'
 
 function randomUuid(): string {
@@ -28,13 +30,17 @@ export function readOpenchatClientId(): string | undefined {
 export function ensureOpenchatClientId(): string {
   if (typeof window === 'undefined') return ''
   const existing = readOpenchatClientId()
-  if (existing) return existing
+  if (existing) {
+    ensureOpenchatNickname()
+    return existing
+  }
   const id = randomUuid()
   try {
     window.localStorage.setItem(CLIENT_ID_KEY, JSON.stringify(id))
   } catch {
     // 저장 실패 시에도 당 세션용 id 반환
   }
+  ensureOpenchatNickname()
   return id
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useActionData, useNavigate, useSubmit } from 'react-router'
 
 import type { RoomPolicy } from '@/features/openchat/openchat.types'
+import { ensureOpenchatNickname, openchatDisplaySenderName } from '@/lib/openchat-display-name'
 import { ensureOpenchatClientId } from '@/lib/openchat-identity'
 import { createRoom } from '@/services/openchat.service'
 import { useLocalStorageState } from '@/hooks/use-local-storage-state'
@@ -11,7 +12,7 @@ export async function clientAction({ request }: { request: Request }) {
   const title = String(form.get('title') ?? '').trim()
   const policy = String(form.get('policy') ?? '').trim() as RoomPolicy
   const tagsRaw = String(form.get('tags') ?? '').trim()
-  const ownerNickname = String(form.get('ownerNickname') ?? 'ㅇㅇ').trim()
+  const ownerNickname = String(form.get('ownerNickname') ?? '').trim() || openchatDisplaySenderName()
   const tags = tagsRaw
     .split(',')
     .map((t) => t.trim())
@@ -79,7 +80,9 @@ export default function NewRoomPage() {
   const navigate = useNavigate()
   const submit = useSubmit()
   const actionData = useActionData() as undefined | { room?: { id: string }; error?: string }
-  const [nickname] = useLocalStorageState('openchat.nickname', 'ㅇㅇ')
+  const [nickname] = useLocalStorageState('openchat.nickname', () =>
+    typeof window === 'undefined' ? '' : ensureOpenchatNickname(),
+  )
 
   const [title, setTitle] = useState('')
   const [policy, setPolicy] = useState<RoomPolicy>('gated_open')
@@ -129,7 +132,7 @@ export default function NewRoomPage() {
           submit(e.currentTarget, { method: 'post' })
         }}
       >
-        <input type='hidden' name='ownerNickname' value={nickname || 'ㅇㅇ'} />
+        <input type='hidden' name='ownerNickname' value={nickname || openchatDisplaySenderName()} />
 
         <div className='space-y-2'>
           <label htmlFor='title' className='block text-sm font-medium'>
@@ -144,7 +147,7 @@ export default function NewRoomPage() {
             className='input'
             autoFocus
           />
-          <div className='text-xs text-slate-500 dark:text-zinc-500'>방장: {nickname || 'ㅇㅇ'}</div>
+          <div className='text-xs text-slate-500 dark:text-zinc-500'>방장: {nickname || openchatDisplaySenderName()}</div>
         </div>
 
         <div className='space-y-2'>

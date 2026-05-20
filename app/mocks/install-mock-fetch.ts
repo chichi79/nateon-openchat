@@ -1,4 +1,4 @@
-import { createOpenChatDb, migrateOpenChatDb } from './openchat.db'
+import { createEmptyOpenChatDb, createOpenChatDb, migrateOpenChatDb } from './openchat.db'
 import type { OpenChatDb } from './openchat.db'
 
 import { createOpenChatApiHandler } from './openchat-api-core'
@@ -22,6 +22,18 @@ function persistClient(db: OpenChatDb) {
   if (typeof window === 'undefined') return
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(db))
+  } catch {
+    // ignore
+  }
+}
+
+/** Mock DB를 localStorage에서 비우거나 샘플 데이터로 되돌립니다. */
+export function resetOpenchatMockStorage(mode: 'empty' | 'seed' = 'empty') {
+  if (typeof window === 'undefined') return
+  const db = mode === 'seed' ? createOpenChatDb() : createEmptyOpenChatDb()
+  persistClient(db)
+  try {
+    window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY }))
   } catch {
     // ignore
   }

@@ -149,7 +149,7 @@ export async function clientAction({ request, params }: { request: Request; para
 
   const form = await request.formData()
   const text = String(form.get('text') ?? '')
-  const sender = String(form.get('sender') ?? 'ㅇㅇ')
+  const sender = String(form.get('sender') ?? '').trim() || openchatDisplaySenderName()
   const replyToMessageId = String(form.get('replyToMessageId') ?? '') || undefined
   const attachmentsJson = String(form.get('attachmentsJson') ?? '')
   const attachments = attachmentsJson ? (JSON.parse(attachmentsJson) as OpenChatAttachment[]) : undefined

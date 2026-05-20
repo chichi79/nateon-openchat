@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Form, Link, useLoaderData, useSearchParams } from 'react-router'
+import { Form, Link, useLoaderData, useRevalidator, useSearchParams } from 'react-router'
 
+import { OpenchatNicknameIntroOverlay } from '@/components/openchat-nickname-intro-overlay'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
 import type { OpenChatRoom, RoomPolicy } from '@/features/openchat/openchat.types'
+import { bootstrapOpenchatIdentityOnRoomList, completeOpenchatNicknameIntro } from '@/lib/openchat-identity-bootstrap'
+import { isViteEnvFalse } from '@/lib/vite-env-flags'
+import { resetOpenchatMockStorage } from '@/mocks/install-mock-fetch'
 import { filterRoomsByParams, subscribeRoomsCollection } from '@/services/openchat-firestore.service'
 import { listRooms } from '@/services/openchat.service'
 export async function clientLoader({ request }: { request: Request }) {
@@ -52,8 +56,39 @@ export default function RoomsPage() {
     loadError?: string
   }
   const [searchParams] = useSearchParams()
+  const revalidator = useRevalidator()
   const firestoreLive = useOpenchatFirestore()
+  const mockApiEnvOn = !isViteEnvFalse(import.meta.env.VITE_ENABLE_MOCK_API)
+  const showMockReset = !firestoreLive && mockApiEnvOn
+  const [mockResetBusy, setMockResetBusy] = useState(false)
   const [rawLiveRooms, setRawLiveRooms] = useState<OpenChatRoom[] | undefined>(undefined)
+  const [nicknameIntro, setNicknameIntro] = useState<string | null>(null)
+
+  useEffect(() => {
+    const { nickname, showIntro } = bootstrapOpenchatIdentityOnRoomList()
+    if (showIntro) setNicknameIntro(nickname)
+  }, [])
+
+  function dismissNicknameIntro() {
+    completeOpenchatNicknameIntro()
+    setNicknameIntro(null)
+  }
+
+  async function handleClearAllMockRooms() {
+    if (!showMockReset || mockResetBusy) return
+    const ok = window.confirm(
+      '이 브라우저에 저장된 Mock 채팅방·메시지·멤버 데이터를 모두 지울까요?\n(다른 탭·다른 브라우저에는 영향 없습니다.)',
+    )
+    if (!ok) return
+    setMockResetBusy(true)
+    try {
+      resetOpenchatMockStorage('empty')
+      setRawLiveRooms(undefined)
+      await revalidator.revalidate()
+    } finally {
+      setMockResetBusy(false)
+    }
+  }
 
   useEffect(() => {
     if (!firestoreLive || loadError) return
@@ -90,6 +125,10 @@ export default function RoomsPage() {
   }
 
   return (
+    <>
+      {nicknameIntro ? (
+        <OpenchatNicknameIntroOverlay nickname={nicknameIntro} onConfirm={dismissNicknameIntro} />
+      ) : null}
     <div className='min-w-0 max-w-full space-y-6 overflow-x-clip'>
       {loadError ? (
         <div className='rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-100'>
@@ -105,21 +144,25 @@ export default function RoomsPage() {
       <div className='flex flex-wrap items-end justify-between gap-4'>
         <div>
           <h1 className='text-2xl font-semibold tracking-tight'>채팅방</h1>
-          <p className='mt-1 text-sm text-slate-600 dark:text-zinc-400'>
-            {firestoreLive ? (
-              <>방 목록은 Firestore와 실시간으로 동기화됩니다.</>
-            ) : (
-              <>
-                클라이언트 전용 API <code className='kbd'>/api/openchat/*</code> 를 통해 로드됩니다.
-              </>
-            )}
-          </p>        </div>
-        <Link to='/rooms/new' className='btn-primary'>
-          <svg viewBox='0 0 24 24' className='h-4 w-4' fill='none' stroke='currentColor' strokeWidth='2.2' strokeLinecap='round' strokeLinejoin='round'>
-            <path d='M12 5v14M5 12h14' />
-          </svg>
-          방 만들기
-        </Link>
+           </div>
+        <div className='flex flex-wrap items-center gap-2'>
+          {showMockReset ? (
+            <button
+              type='button'
+              className='btn-ghost text-rose-600 dark:text-rose-400'
+              disabled={mockResetBusy}
+              onClick={() => void handleClearAllMockRooms()}
+            >
+              {mockResetBusy ? '초기화 중…' : 'Mock 목록 전체 삭제'}
+            </button>
+          ) : null}
+          <Link to='/rooms/new' className='btn-primary'>
+            <svg viewBox='0 0 24 24' className='h-4 w-4' fill='none' stroke='currentColor' strokeWidth='2.2' strokeLinecap='round' strokeLinejoin='round'>
+              <path d='M12 5v14M5 12h14' />
+            </svg>
+            방 만들기
+          </Link>
+        </div>
       </div>
 
       <Form method='get' className='card p-3'>
@@ -216,5 +259,6 @@ export default function RoomsPage() {
         </ul>
       )}
     </div>
+    </>
   )
 }

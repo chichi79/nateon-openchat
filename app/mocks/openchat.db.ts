@@ -93,6 +93,22 @@ export function migrateOpenChatDb(parsed: unknown): OpenChatDb {
   }
 }
 
+/** 샘플 방 없이 빈 목록 (Mock 전체 초기화용) */
+export function createEmptyOpenChatDb(): OpenChatDb {
+  return {
+    rooms: [],
+    messagesByRoomId: {},
+    membersByRoomId: {},
+    clientIdToMemberKeyByRoomId: {},
+    displayNameByClientIdByRoomId: {},
+    pendingRequestedAtByRoomId: {},
+    inviteStateByRoomId: {},
+    managersByRoomId: {},
+    blockedByRoomId: {},
+    readStatesByRoomId: {},
+  }
+}
+
 export function createOpenChatDb(): OpenChatDb {
   const rooms: OpenChatRoom[] = [
     {

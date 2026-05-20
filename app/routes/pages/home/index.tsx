@@ -53,9 +53,6 @@ export default function HomePage() {
               <path d='M5 12h14M13 5l7 7-7 7' />
             </svg>
           </Link>
-          <Link to='/rooms/new' className='btn-ghost'>
-            방 만들기
-          </Link>
         </div>
       </section>
 
