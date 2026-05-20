@@ -2401,10 +2401,10 @@ export default function RoomDetailPage() {
         ref={composeBarRef}
         className='openchat-compose-dock fixed inset-x-0 z-30 border-t border-[#e5e8ed] bg-white dark:border-white/10 dark:bg-[#161a25]'
       >
-        <div className='openchat-compose-dock-inner mx-auto w-full max-w-[1024px] px-4 pt-3'>
+        <div className='openchat-compose-dock-inner mx-auto w-full max-w-[1024px] px-4 pt-2 md:pt-3'>
           <fetcher.Form
             ref={formRef}
-            className='flex flex-col gap-2.5 pb-3'
+            className='flex flex-col gap-2 pb-2 md:gap-2.5 md:pb-3'
             method='post'
             onSubmit={() => {
               keyboardWasOpenOnSendRef.current = isOpenchatKeyboardLikelyOpen()

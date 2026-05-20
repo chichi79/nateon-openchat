@@ -403,6 +403,35 @@ textarea.input {
     right: 0;
     width: auto;
   }
+
+  /* 입력 dock 전체 높이 ~120px (기존 ~130px) */
+  .openchat-compose-input {
+    min-height: 2.5rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .openchat-compose-toolbar {
+    min-height: 2.5rem;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+
+  .openchat-compose-icon-btn {
+    height: 1.875rem;
+    width: 1.875rem;
+  }
+
+  .openchat-compose-nickname-slot {
+    height: 2rem;
+    min-height: 2rem;
+  }
+
+  .openchat-compose-send {
+    min-height: 2rem;
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+  }
 }
 
 /* 참여 방 사이드바·드로어 공통 (PC + 모바일) */
