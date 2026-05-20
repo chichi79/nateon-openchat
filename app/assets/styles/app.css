@@ -320,10 +320,21 @@ textarea.input {
   );
 }
 .openchat-banner-above-compose {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
   bottom: calc(
     var(--openchat-keyboard-offset, 0px) + var(--openchat-compose-h, 5.25rem) + var(--openchat-compose-gap, 0.5rem) +
       var(--openchat-safe-bottom, env(safe-area-inset-bottom, 0px))
   );
+}
+
+@media (min-width: 1024px) {
+  .openchat-room-chat-column .openchat-banner-above-compose {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+  }
 }
 
 /* PC(≥1024px): 채팅 열(1024px) 안에 TOP FAB 정렬 */
@@ -394,8 +405,10 @@ textarea.input {
   }
 
   .openchat-banner-above-compose {
-    top: calc(var(--openchat-compose-top, 100dvh) - var(--openchat-compose-h, 5.25rem) - var(--openchat-compose-gap, 0.5rem));
+    /* 입력창 top(compose-top) 바로 위에 하단 맞춤 */
+    top: calc(var(--openchat-compose-top, 100dvh) - var(--openchat-compose-gap, 0.5rem));
     bottom: auto;
+    transform: translate(-50%, -100%);
   }
 
   .openchat-room-layout .openchat-compose-dock {
@@ -2226,6 +2239,22 @@ html[data-theme='dark'] .openchat-typing-float-dots {
   }
   100% {
     transform: translateX(280%);
+  }
+}
+
+/* 방 토스트 — 채팅 열 안 flex 가로 중앙(PC), 모바일은 뷰포트 전체 */
+.openchat-toast-host {
+  position: fixed;
+  left: 0;
+  right: 0;
+}
+
+@media (min-width: 1024px) {
+  .openchat-room-chat-column .openchat-toast-host {
+    position: absolute;
+    left: 0;
+    right: 0;
+    width: auto;
   }
 }
 

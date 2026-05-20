@@ -1532,7 +1532,7 @@ export default function RoomDetailPage() {
       <div className='openchat-room-split space-y-4'>
         <OpenchatParticipationSidebar currentRoomId={room.id} refreshKey={participationRefreshKey} />
 
-        <div className='openchat-room-chat-column min-w-0 flex-1 space-y-0'>
+        <div className='openchat-room-chat-column relative min-w-0 flex-1 space-y-0'>
       {showMockStorageNotice ? (
         <div className='mx-4 break-words rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/95'>
           <span className='font-medium text-amber-50'>데모(Mock) 저장 방식</span>
@@ -2368,7 +2368,7 @@ export default function RoomDetailPage() {
       {newMsgCount > 0 && !isAtBottom ? (
         <button
           type='button'
-          className='openchat-banner-above-compose fixed left-1/2 z-40 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-full bg-[#5C87FF]/90 px-4 py-2 text-xs font-medium text-white shadow-[0_10px_30px_-10px_rgba(92,135,255,0.7)] backdrop-blur-md transition hover:bg-[#5C87FF]'
+          className='openchat-banner-above-compose z-40 max-w-[calc(100%-2rem)] rounded-full bg-[#5C87FF]/90 px-4 py-2 text-xs font-medium text-white shadow-[0_10px_30px_-10px_rgba(92,135,255,0.7)] backdrop-blur-md transition hover:bg-[#5C87FF]'
           onClick={() => {
             scrollToBottom()
             setNewMsgCount(0)
@@ -2789,6 +2789,8 @@ export default function RoomDetailPage() {
         </div>
       ) : null}
 
+      <OpenchatToastHost />
+
         </div>
       </div>
 
@@ -2799,8 +2801,6 @@ export default function RoomDetailPage() {
         currentRoomId={room.id}
         refreshKey={participationRefreshKey}
       />
-
-      <OpenchatToastHost />
     </div>
   )
 }
