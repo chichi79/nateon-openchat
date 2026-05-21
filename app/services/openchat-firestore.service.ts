@@ -129,6 +129,8 @@ function tsToIso(t: Timestamp | { toDate?: () => Date } | undefined | null): str
 
 function roomFromSnap(id: string, data: Record<string, unknown>): OpenChatRoom {
   const ownerClientIdRaw = data.ownerClientId
+  const iconUrlRaw = data.iconUrl
+  const iconUrl = typeof iconUrlRaw === 'string' && iconUrlRaw.trim() ? iconUrlRaw.trim() : undefined
   return {
     id,
     title: String(data.title ?? ''),
@@ -137,6 +139,7 @@ function roomFromSnap(id: string, data: Record<string, unknown>): OpenChatRoom {
     ownerNickname: String(data.ownerNickname ?? ''),
     ownerClientId:
       typeof ownerClientIdRaw === 'string' && ownerClientIdRaw.trim() ? ownerClientIdRaw.trim() : undefined,
+    ...(iconUrl ? { iconUrl } : {}),
     createdAt: tsToIso(data.createdAt as Timestamp | undefined),
   }
 }
@@ -213,6 +216,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
   const id = rref.id
   const now = serverTimestamp()
   const ownerClientId = body.ownerClientId?.trim() || undefined
+  const iconUrl = body.iconUrl?.trim() || undefined
   const room: OpenChatRoom = {
     id,
     title,
@@ -220,6 +224,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
     tags: body.tags ?? [],
     ownerNickname: body.ownerNickname.trim(),
     ownerClientId,
+    ...(iconUrl ? { iconUrl } : {}),
     createdAt: new Date().toISOString(),
   }
   const batch = writeBatch(firestore())
@@ -229,6 +234,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
     tags: room.tags,
     ownerNickname: room.ownerNickname,
     ...(ownerClientId ? { ownerClientId } : {}),
+    ...(iconUrl ? { iconUrl } : {}),
     createdAt: now,
     managers: [],
     blocked: [],
@@ -938,6 +944,7 @@ function participationFromMemberDoc(
   return {
     roomId,
     roomTitle: room.title,
+    ...(room.iconUrl ? { iconUrl: room.iconUrl } : {}),
     displayName,
     nickname,
     status: status as Exclude<MembershipStatus, 'none'>,
@@ -972,6 +979,7 @@ async function listMyParticipationsByRoomScan(cid: string): Promise<MyClientPart
     participations.push({
       roomId: d.id,
       roomTitle: room.title,
+      ...(room.iconUrl ? { iconUrl: room.iconUrl } : {}),
       displayName: room.ownerNickname,
       nickname: room.ownerNickname,
       status: 'member',

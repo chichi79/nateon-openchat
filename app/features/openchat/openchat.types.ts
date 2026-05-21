@@ -8,6 +8,8 @@ export type OpenChatRoom = {
   ownerNickname: string
   /** 브라우저 익명 id — 방장 권한 판별에 사용(닉네임 변경과 분리) */
   ownerClientId?: string
+  /** 방 아이콘 이미지(data URL 등). 없으면 제목 첫 글자 아바타 */
+  iconUrl?: string
   createdAt: string
 }
 
@@ -64,6 +66,7 @@ export type CreateRoomRequest = {
   tags: string[]
   ownerNickname: string
   ownerClientId?: string
+  iconUrl?: string
 }
 
 export type CreateRoomResponse = {
@@ -161,6 +164,7 @@ export type ParticipationRole = 'owner' | 'manager'
 export type MyClientParticipationRow = {
   roomId: string
   roomTitle: string
+  iconUrl?: string
   /** 이 방에서 사용 중인 표시 이름(대화명) */
   displayName: string
   /** 멤버 내부 키 */

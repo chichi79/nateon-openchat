@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Link,
   isRouteErrorResponse,
@@ -27,6 +27,7 @@ import { resolveMessageSenderLabel } from '@/lib/openchat-display-label'
 import { ensureOpenchatClientId, isOpenchatMessageMine } from '@/lib/openchat-identity'
 import { addSeenJoinClientIds, readSeenJoinClientIds } from '@/lib/openchat-join-toast-seen'
 import { memberAdminLabel, memberMatchesManagerList } from '@/lib/openchat-member-managers'
+import { findChatSearchMatchIds, normalizeChatSearchQuery } from '@/lib/openchat-message-search'
 import { isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
 import { clearOpenchatToasts, showOpenchatToast } from '@/lib/openchat-toast'
 import {
@@ -47,6 +48,7 @@ import {
   readMentionNotificationsEnabled,
   setMentionNotificationsEnabled,
 } from '@/lib/openchat-mention-notification'
+import { OpenchatChatSearchBar } from '@/components/openchat-chat-search-bar'
 import { ComposeEmojiPicker } from '@/components/compose-emoji-picker'
 import { OpenchatPageLoading, openchatPageLoadingCopy } from '@/components/openchat-page-loading'
 import {
@@ -198,16 +200,42 @@ function shortDeadline(iso: string) {
   }
 }
 
-function renderTextWithMentions(text: string) {
+function renderHighlightedPlain(text: string, query: string, keyPrefix: string) {
+  const q = normalizeChatSearchQuery(query)
+  if (!q) return <span key={keyPrefix}>{text}</span>
+
+  const lower = text.toLowerCase()
+  const parts: ReactNode[] = []
+  let start = 0
+  let part = 0
+  while (start <= text.length) {
+    const idx = lower.indexOf(q, start)
+    if (idx === -1) {
+      if (start < text.length) parts.push(<span key={`${keyPrefix}-${part++}`}>{text.slice(start)}</span>)
+      break
+    }
+    if (idx > start) parts.push(<span key={`${keyPrefix}-${part++}`}>{text.slice(start, idx)}</span>)
+    parts.push(
+      <mark key={`${keyPrefix}-${part++}`} className='openchat-chat-search-mark'>
+        {text.slice(idx, idx + q.length)}
+      </mark>,
+    )
+    start = idx + q.length
+  }
+  return parts
+}
+
+function renderTextWithMentions(text: string, searchHighlight = '') {
+  const highlight = searchHighlight.trim()
   return splitMentionParts(text).map((p, i) => {
     if (isMentionToken(p)) {
       return (
         <span key={i} className='font-semibold text-[#4a6bcc] dark:text-[#BFD0FF]'>
-          {p}
+          {highlight ? renderHighlightedPlain(p, highlight, `m-${i}`) : p}
         </span>
       )
     }
-    return <span key={i}>{p}</span>
+    return renderHighlightedPlain(p, highlight, String(i))
   })
 }
 
@@ -348,6 +376,10 @@ export default function RoomDetailPage() {
 
   const [moderatorPanelTab, setModeratorPanelTab] = useState<ModeratorPanelTab>('members')
   const [moderatorPanelOpen, setModeratorPanelOpen] = useState(false)
+  const chatSearchInputRef = useRef<HTMLInputElement>(null)
+  const [chatSearchOpen, setChatSearchOpen] = useState(false)
+  const [chatSearchQuery, setChatSearchQuery] = useState('')
+  const [chatSearchMatchIndex, setChatSearchMatchIndex] = useState(0)
 
   const moderatorTabs = useMemo(() => {
     if (!isModerator) return [] as { id: ModeratorPanelTab; label: string; badge?: number }[]
@@ -593,10 +625,23 @@ export default function RoomDetailPage() {
     return [...names].sort((a, b) => a.localeCompare(b, 'ko'))
   }, [displayNamesByClientId, memberDirectory, myClientId, myMentionAliases])
 
+  const chatSearchNorm = chatSearchQuery.trim()
+
+  const chatSearchMatchIds = useMemo(
+    () => (chatSearchNorm ? findChatSearchMatchIds(sortedMessages, chatSearchQuery, labelForMessage) : []),
+    [sortedMessages, chatSearchQuery, chatSearchNorm, labelForMessage],
+  )
+
+  const messagesForDisplay = useMemo(() => {
+    if (!chatSearchNorm) return sortedMessages
+    const set = new Set(chatSearchMatchIds)
+    return sortedMessages.filter((m) => set.has(m.id))
+  }, [sortedMessages, chatSearchNorm, chatSearchMatchIds])
+
   const grouped = useMemo(() => {
     const out: Array<{ kind: 'day'; day: string } | { kind: 'msg'; msg: OpenChatMessage }> = []
     let lastDay = ''
-    for (const m of sortedMessages) {
+    for (const m of messagesForDisplay) {
       const day = dayLabel(m.createdAt)
       if (day !== lastDay) {
         out.push({ kind: 'day', day })
@@ -605,7 +650,9 @@ export default function RoomDetailPage() {
       out.push({ kind: 'msg', msg: m })
     }
     return out
-  }, [sortedMessages])
+  }, [messagesForDisplay])
+
+  const chatSearchActiveId = chatSearchMatchIds[chatSearchMatchIndex] ?? null
 
   useLayoutEffect(() => {
     if (messageAnimRoomIdRef.current !== room.id) {
@@ -1248,6 +1295,52 @@ export default function RoomDetailPage() {
     })
   }, [])
 
+  const goChatSearchMatch = useCallback(
+    (index: number) => {
+      if (chatSearchMatchIds.length === 0) return
+      const next =
+        ((index % chatSearchMatchIds.length) + chatSearchMatchIds.length) % chatSearchMatchIds.length
+      setChatSearchMatchIndex(next)
+      const id = chatSearchMatchIds[next]
+      if (id) scrollToQuotedMessage(id)
+    },
+    [chatSearchMatchIds, scrollToQuotedMessage],
+  )
+
+  useEffect(() => {
+    setChatSearchOpen(false)
+    setChatSearchQuery('')
+    setChatSearchMatchIndex(0)
+  }, [room.id])
+
+  useEffect(() => {
+    setChatSearchMatchIndex(0)
+  }, [chatSearchQuery, chatSearchMatchIds.length])
+
+  useEffect(() => {
+    if (!chatSearchOpen) return
+    const t = window.setTimeout(() => chatSearchInputRef.current?.focus(), 0)
+    return () => window.clearTimeout(t)
+  }, [chatSearchOpen])
+
+  useEffect(() => {
+    if (!chatSearchOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setChatSearchOpen(false)
+        setChatSearchQuery('')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [chatSearchOpen])
+
+  useEffect(() => {
+    if (!chatSearchNorm || chatSearchMatchIds.length === 0) return
+    const t = window.setTimeout(() => scrollToQuotedMessage(chatSearchMatchIds[0]!), 350)
+    return () => window.clearTimeout(t)
+  }, [chatSearchQuery, chatSearchNorm, chatSearchMatchIds, scrollToQuotedMessage])
+
   const submitCompose = useCallback(() => {
     if (!canPost || !canSendCompose || fetcher.state !== 'idle') return
     keyboardWasOpenOnSendRef.current = isOpenchatKeyboardLikelyOpen()
@@ -1332,7 +1425,15 @@ export default function RoomDetailPage() {
       ro.disconnect()
       window.removeEventListener('resize', sync)
     }
-  }, [memberDirectory?.members.length, room.title, moderatorTabs.length, mentionNotifOn, canViewChatHistory])
+  }, [
+    memberDirectory?.members.length,
+    room.title,
+    moderatorTabs.length,
+    mentionNotifOn,
+    canViewChatHistory,
+    chatSearchOpen,
+    chatSearchQuery,
+  ])
 
   useEffect(() => {
     const bottomThreshold = 72
@@ -1553,8 +1654,9 @@ export default function RoomDetailPage() {
       <div className='openchat-room-sticky-stack bg-white dark:bg-[#161a25]'>
       <div
         ref={roomStickyHeadRef}
-        className='openchat-room-sticky-head flex min-w-0 items-center gap-3 border-b border-[#e5e8ed] px-4 py-3 dark:border-white/10'
+        className='openchat-room-sticky-head flex flex-col border-b border-[#e5e8ed] dark:border-white/10'
       >
+        <div className='flex min-w-0 items-center gap-3 px-4 py-3'>
         <button
           type='button'
           className='inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#949ba4] transition hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100 lg:hidden'
@@ -1620,6 +1722,31 @@ export default function RoomDetailPage() {
             <button
               type='button'
               className={[
+                'inline-flex h-9 w-9 items-center justify-center rounded-full transition',
+                chatSearchOpen
+                  ? 'bg-[#5C87FF]/15 text-[#4a6bcc] dark:text-[#BFD0FF]'
+                  : 'text-[#949ba4] hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100',
+              ].join(' ')}
+              title={chatSearchOpen ? '검색 닫기' : '대화 검색'}
+              aria-label='대화 검색'
+              aria-expanded={chatSearchOpen}
+              onClick={() => {
+                setChatSearchOpen((open) => {
+                  if (open) setChatSearchQuery('')
+                  return !open
+                })
+              }}
+            >
+              <svg viewBox='0 0 24 24' className='h-5 w-5' fill='none' stroke='currentColor' strokeWidth='1.8' aria-hidden>
+                <circle cx='11' cy='11' r='7' />
+                <path d='M21 21l-4.3-4.3' strokeLinecap='round' />
+              </svg>
+            </button>
+          ) : null}
+          {canViewChatHistory ? (
+            <button
+              type='button'
+              className={[
                 'relative inline-flex h-9 w-9 items-center justify-center rounded-full transition',
                 mentionNotifOn
                   ? 'text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400'
@@ -1654,6 +1781,22 @@ export default function RoomDetailPage() {
           </Link>
         </div>
         </div>
+        {chatSearchOpen && canViewChatHistory ? (
+          <OpenchatChatSearchBar
+            query={chatSearchQuery}
+            onQueryChange={setChatSearchQuery}
+            matchCount={chatSearchMatchIds.length}
+            matchIndex={chatSearchMatchIndex}
+            onPrev={() => goChatSearchMatch(chatSearchMatchIndex - 1)}
+            onNext={() => goChatSearchMatch(chatSearchMatchIndex + 1)}
+            onClose={() => {
+              setChatSearchOpen(false)
+              setChatSearchQuery('')
+            }}
+            inputRef={chatSearchInputRef}
+          />
+        ) : null}
+      </div>
       </div>
       <div className='openchat-room-sticky-stack-spacer' aria-hidden />
       </div>
@@ -2049,6 +2192,11 @@ export default function RoomDetailPage() {
             void handleFiles(e.dataTransfer.files)
           }}
         >
+            {chatSearchNorm && messagesForDisplay.length === 0 ? (
+              <li className='flex justify-center py-16'>
+                <p className='text-sm text-[#949ba4] dark:text-zinc-500'>일치하는 메시지가 없어요.</p>
+              </li>
+            ) : null}
             {grouped.map((it, idx) => {
               if (it.kind === 'day') {
                 return (
@@ -2063,9 +2211,18 @@ export default function RoomDetailPage() {
               const m = it.msg
               if (m.kind === 'system') {
                 return (
-                  <li key={m.id} className='flex justify-center py-2'>
+                  <li
+                    id={`openchat-msg-${m.id}`}
+                    key={m.id}
+                    className={[
+                      'flex justify-center py-2 scroll-mt-[calc(var(--app-header-h)+0.75rem)]',
+                      chatSearchActiveId === m.id ? 'openchat-chat-search-active-msg' : '',
+                    ].join(' ')}
+                  >
                     <span className='rounded-full border border-slate-200 dark:border-white/5 bg-slate-900/[0.04] dark:bg-white/[0.03] px-3 py-1 text-center text-[11px] text-slate-600 dark:text-zinc-400'>
-                      {m.text}
+                      {m.text && chatSearchNorm
+                        ? renderTextWithMentions(m.text, chatSearchQuery)
+                        : m.text}
                     </span>
                   </li>
                 )
@@ -2087,6 +2244,7 @@ export default function RoomDetailPage() {
                   className={[
                     isMine ? 'flex justify-end pr-0' : 'flex justify-start gap-1.5',
                     'group scroll-mt-[calc(var(--app-header-h)+0.75rem)]',
+                    chatSearchActiveId === m.id ? 'openchat-chat-search-active-msg' : '',
                     messageSlideInIds.has(m.id) ? (isMine ? 'openchat-msg-slide-in-mine' : 'openchat-msg-slide-in-other') : '',
                   ].join(' ')}
                 >
@@ -2104,7 +2262,11 @@ export default function RoomDetailPage() {
                       ].join(' ')}
                     >
                     {!isMine ? (
-                      <div className='mb-1 text-xs font-medium text-[#4e5968] dark:text-zinc-300'>{senderLabel}</div>
+                      <div className='mb-1 text-xs font-medium text-[#4e5968] dark:text-zinc-300'>
+                        {chatSearchNorm
+                          ? renderHighlightedPlain(senderLabel, chatSearchQuery, 'sender')
+                          : senderLabel}
+                      </div>
                     ) : null}
 
                     <div
@@ -2190,7 +2352,7 @@ export default function RoomDetailPage() {
                                 isMine ? 'text-right' : 'text-left',
                               ].join(' ')}
                             >
-                              {renderTextWithMentions(m.text)}
+                              {renderTextWithMentions(m.text, chatSearchNorm ? chatSearchQuery : '')}
                             </div>
                           ) : null}
 

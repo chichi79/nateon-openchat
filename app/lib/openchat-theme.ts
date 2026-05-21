@@ -1,12 +1,22 @@
+import {
+  openchatHydrateBootHelpersScript,
+  openchatHydrateBootRunScript,
+} from '@/lib/openchat-hydrate-boot'
+import { OPENCHAT_THEME_COLORS, type OpenchatTheme } from '@/lib/openchat-theme-tokens'
+
 export const OPENCHAT_THEME_STORAGE_KEY = 'openchat-ui-theme'
 
-export type OpenchatTheme = 'light' | 'dark'
+export type { OpenchatTheme } from '@/lib/openchat-theme-tokens'
 
-/** `app.css` 의 `--bg` / `--text` 와 동일 — CSS 로드 전 첫 페인트용 */
-export const OPENCHAT_THEME_COLORS = {
-  dark: { bg: '#07090f', text: '#e7ebf3' },
-  light: { bg: '#f4f6fc', text: '#0f172a' },
-} as const
+export { OPENCHAT_THEME_COLORS } from '@/lib/openchat-theme-tokens'
+
+export function openchatPageLoadingShellColors(theme: OpenchatTheme, variant: 'chat' | 'page') {
+  const c = OPENCHAT_THEME_COLORS[theme]
+  return {
+    backgroundColor: variant === 'chat' ? c.chatPanel : c.bg,
+    color: c.text,
+  }
+}
 
 export function readStoredOpenchatTheme(): OpenchatTheme {
   if (typeof window === 'undefined') return 'dark'
@@ -24,8 +34,15 @@ export function readOpenchatThemeFromDocument(): OpenchatTheme {
 }
 
 function themeBootCss(theme: OpenchatTheme) {
-  const { bg, text } = OPENCHAT_THEME_COLORS[theme]
-  return `html,body{background-color:${bg};color:${text};min-height:100%;min-height:100dvh;}`
+  const { bg, text, chatPanel } = OPENCHAT_THEME_COLORS[theme]
+  return [
+    `html,body{background-color:${bg}!important;color:${text}!important;min-height:100%;min-height:100dvh;}`,
+    `html[data-theme="${theme}"] .openchat-hydrate-layout,html[data-theme="${theme}"] .openchat-page-loading-shell--page{background-color:${bg}!important;color:${text}!important;}`,
+    `html[data-theme="${theme}"] .openchat-page-loading-shell--chat{background-color:${chatPanel}!important;color:${text}!important;}`,
+    `.openchat-hydrate-layout{background-color:${bg}!important;color:${text}!important;min-height:100dvh;}`,
+    `.openchat-page-loading-shell--page{background-color:${bg}!important;color:${text}!important;}`,
+    `.openchat-page-loading-shell--chat{background-color:${chatPanel}!important;color:${text}!important;}`,
+  ].join('')
 }
 
 export function syncOpenchatThemeBootStyle(theme: OpenchatTheme) {
@@ -52,5 +69,14 @@ export function applyOpenchatTheme(theme: OpenchatTheme) {
   }
 }
 
-/** Layout `<head>` 최상단 — CSS·HydrateFallback 보다 먼저 테마·배경 적용 */
-export const OPENCHAT_THEME_INIT_SCRIPT = `(function(){function boot(bg,fg){var el=document.getElementById('openchat-theme-boot');if(!el){el=document.createElement('style');el.id='openchat-theme-boot';document.head.appendChild(el);}el.textContent='html,body{background-color:'+bg+';color:'+fg+';min-height:100%;min-height:100dvh;}';}try{var k='${OPENCHAT_THEME_STORAGE_KEY}';var s=localStorage.getItem(k);var t=s==='light'||s==='dark'?s:'dark';var bg=t==='light'?'${OPENCHAT_THEME_COLORS.light.bg}':'${OPENCHAT_THEME_COLORS.dark.bg}';var fg=t==='light'?'${OPENCHAT_THEME_COLORS.light.text}':'${OPENCHAT_THEME_COLORS.dark.text}';document.documentElement.style.colorScheme=t;document.documentElement.setAttribute('data-theme',t);document.documentElement.setAttribute('data-openchat-path',location.pathname);boot(bg,fg);}catch(e){document.documentElement.style.colorScheme='dark';document.documentElement.setAttribute('data-theme','dark');document.documentElement.setAttribute('data-openchat-path',location.pathname);boot('${OPENCHAT_THEME_COLORS.dark.bg}','${OPENCHAT_THEME_COLORS.dark.text}');}})();`
+const hydrateHelpers = openchatHydrateBootHelpersScript()
+const hydrateRun = openchatHydrateBootRunScript(OPENCHAT_THEME_STORAGE_KEY)
+
+/** Layout `<head>` 최상단 — html 즉시 배경(채팅 경로는 패널색) */
+export const OPENCHAT_THEME_INIT_SCRIPT = `(function(){${hydrateHelpers}${hydrateRun}})();`
+
+/** Layout `<body>` 최상단 — body 배경 즉시 적용 */
+export const OPENCHAT_THEME_BODY_PAINT_SCRIPT = `(function(){${hydrateHelpers}${hydrateRun}})();`
+
+/** HydrateFallback DOM 직후 — 셸 클래스·문구 재동기화 */
+export const OPENCHAT_THEME_BODY_SYNC_SCRIPT = OPENCHAT_THEME_BODY_PAINT_SCRIPT

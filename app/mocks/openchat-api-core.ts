@@ -408,6 +408,9 @@ async function handleCreateRoom(method: string, request: Request) {
     .slice(0, 24)
   const id = `${idBase || 'room'}-${Math.random().toString(16).slice(2, 6)}`
 
+  const iconUrl = typeof body?.iconUrl === 'string' && body.iconUrl.trim() ? body.iconUrl.trim() : undefined
+  if (iconUrl && iconUrl.length > 150_000) return badRequest('icon image is too large')
+
   const room: OpenChatRoom = {
     id,
     title,
@@ -415,6 +418,7 @@ async function handleCreateRoom(method: string, request: Request) {
     tags,
     ownerNickname,
     ...(ownerClientId ? { ownerClientId } : {}),
+    ...(iconUrl ? { iconUrl } : {}),
     createdAt: nowIso(),
   }
 

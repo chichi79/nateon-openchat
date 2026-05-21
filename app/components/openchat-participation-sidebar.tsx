@@ -3,21 +3,8 @@ import type { RefObject } from 'react'
 import { Link } from 'react-router'
 
 import type { MyClientParticipationRow, ParticipationRole } from '@/features/openchat/openchat.types'
+import { OpenchatRoomIcon } from '@/components/openchat-room-icon'
 import { listMyParticipations } from '@/services/openchat.service'
-
-function gradientFor(seed: string) {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
-  const a = h % 360
-  const b = (a + 60) % 360
-  return `linear-gradient(135deg, hsl(${a} 70% 58%) 0%, hsl(${b} 70% 50%) 100%)`
-}
-
-function initialOf(text: string) {
-  const t = text.trim()
-  if (!t) return '?'
-  return [...t][0]!.toUpperCase()
-}
 
 function statusHint(status: MyClientParticipationRow['status']) {
   if (status === 'pending') return '승인 대기'
@@ -123,13 +110,13 @@ function ParticipationPanel({ currentRoomId, refreshKey, onNavigate, showClose, 
                 aria-current={active ? 'page' : undefined}
                 onClick={() => onNavigate?.()}
               >
-                <span
-                  className='openchat-participation-sidebar-avatar'
-                  style={{ backgroundImage: gradientFor(row.roomId) }}
-                  aria-hidden
-                >
-                  {initialOf(row.roomTitle)}
-                </span>
+                <OpenchatRoomIcon
+                  roomId={row.roomId}
+                  title={row.roomTitle}
+                  iconUrl={row.iconUrl}
+                  size={40}
+                  className='rounded-xl'
+                />
                 <span className='min-w-0 flex-1'>
                   <span className='openchat-participation-sidebar-name'>{row.roomTitle}</span>
                   <span className='openchat-participation-sidebar-room'>{row.displayName}</span>

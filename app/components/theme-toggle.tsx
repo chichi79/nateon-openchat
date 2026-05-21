@@ -1,19 +1,7 @@
-import { useCallback, useSyncExternalStore } from 'react'
+import { useCallback } from 'react'
 
-import {
-  applyOpenchatTheme,
-  readOpenchatThemeFromDocument,
-  type OpenchatTheme,
-} from '@/lib/openchat-theme'
-
-function subscribe(onChange: () => void) {
-  window.addEventListener('openchat-theme', onChange)
-  return () => window.removeEventListener('openchat-theme', onChange)
-}
-
-function getThemeSnapshot(): OpenchatTheme {
-  return readOpenchatThemeFromDocument()
-}
+import { useOpenchatTheme } from '@/hooks/use-openchat-theme'
+import { applyOpenchatTheme, type OpenchatTheme } from '@/lib/openchat-theme'
 
 function IconSun() {
   return (
@@ -41,7 +29,7 @@ function IconMoon() {
 }
 
 export function ThemeToggle() {
-  const theme = useSyncExternalStore(subscribe, getThemeSnapshot, getThemeSnapshot)
+  const theme = useOpenchatTheme()
 
   const toggle = useCallback(() => {
     applyOpenchatTheme(theme === 'dark' ? 'light' : 'dark')

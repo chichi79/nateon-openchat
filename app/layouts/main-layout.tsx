@@ -69,7 +69,7 @@ export default function MainLayout() {
   const { pathname } = useLocation()
   const navigation = useNavigation()
   const roomChatDetail = isRoomChatDetailPath(pathname)
-  /** 다른 화면→대상 진입만. 같은 URL F5 는 루트 HydrateFallback */
+  /** 다른 화면 → 대상 URL 로 이동할 때만. 같은 URL F5·clientLoader 는 HydrateFallback 만 */
   const pendingRoomChatLoad =
     navigation.state === 'loading' &&
     navigation.location != null &&

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Form, Link, useLoaderData, useRevalidator, useSearchParams } from 'react-router'
 
 import { OpenchatNicknameIntroOverlay } from '@/components/openchat-nickname-intro-overlay'
+import { OpenchatRoomIcon } from '@/components/openchat-room-icon'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
 import type { OpenChatRoom, RoomPolicy } from '@/features/openchat/openchat.types'
 import { bootstrapOpenchatIdentityOnRoomList, completeOpenchatNicknameIntro } from '@/lib/openchat-identity-bootstrap'
@@ -32,20 +33,6 @@ function policyMeta(policy: RoomPolicy): { label: string; chip: string; desc: st
     case 'gated_open':
       return { label: '신청/승인형', chip: 'chip chip-brand', desc: '신청 후 방장 승인' }
   }
-}
-
-function roomGradient(seed: string) {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
-  const a = h % 360
-  const b = (a + 60) % 360
-  return `linear-gradient(135deg, hsl(${a} 70% 58%) 0%, hsl(${b} 70% 50%) 100%)`
-}
-
-function initial(title: string) {
-  const t = title.trim()
-  if (!t) return '?'
-  return [...t][0]!.toUpperCase()
 }
 
 export default function RoomsPage() {
@@ -213,13 +200,7 @@ export default function RoomsPage() {
               <li key={room.id} className='anim-in' style={{ animationDelay: `${i * 30}ms` }}>
                 <Link to={`/rooms/${room.id}`} className='card card-hover group block p-5'>
                   <div className='flex items-start gap-4'>
-                    <div
-                      className='flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-base font-semibold text-white shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)] ring-1 ring-inset ring-slate-300/40 dark:ring-white/15'
-                      style={{ backgroundImage: roomGradient(room.id) }}
-                      aria-hidden
-                    >
-                      {initial(room.title)}
-                    </div>
+                    <OpenchatRoomIcon roomId={room.id} title={room.title} iconUrl={room.iconUrl} size={48} />
 
                     <div className='min-w-0 flex-1'>
                       <div className='flex items-start justify-between gap-2'>

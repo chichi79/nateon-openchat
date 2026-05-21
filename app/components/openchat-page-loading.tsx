@@ -57,30 +57,33 @@ export function OpenchatPageLoading({ title, hint, compact = false }: OpenchatPa
 type OpenchatPageLoadingShellProps = OpenchatPageLoadingCopy & {
   /** 채팅방: 카카오톡 패널 배경 / 그 외: 앱 기본 배경 */
   variant?: 'chat' | 'page'
-  /** 상단 헤더 없음(HydrateFallback) — 화면 전체 기준 중앙 */
-  fullscreen?: boolean
 }
 
-/** 전체 영역 로딩(진입·새로고침·clientLoader 대기) */
-export function OpenchatPageLoadingShell({
-  variant = 'page',
-  fullscreen = false,
-  title,
-  hint,
-}: OpenchatPageLoadingShellProps) {
+/** 상단 앱 헤더 + 헤더 아래 로딩 — main-layout·HydrateFallback 공통 */
+export function OpenchatPageLoadingShell({ variant = 'page', title, hint }: OpenchatPageLoadingShellProps) {
   const loading = <OpenchatPageLoading title={title} hint={hint} />
 
   return (
     <div
       className={[
         'openchat-page-loading-shell',
-        fullscreen ? 'openchat-page-loading-shell--fullscreen' : '',
-        variant === 'chat' ? 'openchat-page-loading-shell--chat' : '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
+        variant === 'chat' ? 'openchat-page-loading-shell--chat' : 'openchat-page-loading-shell--page',
+      ].join(' ')}
     >
       {variant === 'chat' ? <div className='openchat-page-loading-shell-panel'>{loading}</div> : loading}
+    </div>
+  )
+}
+
+/** HydrateFallback 전용 — main-layout TopNav 뜨기 전 로딩만(헤더 영역 비움) */
+export function OpenchatHydrateLoadingShell({
+  variant = 'page',
+  title,
+  hint,
+}: OpenchatPageLoadingShellProps) {
+  return (
+    <div className='openchat-hydrate-layout'>
+      <OpenchatPageLoadingShell variant={variant} title={title} hint={hint} />
     </div>
   )
 }

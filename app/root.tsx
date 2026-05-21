@@ -2,11 +2,13 @@ import { useLayoutEffect } from 'react'
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router'
 
 import type { Route } from './+types/root'
-import { OpenchatPageLoadingShell, openchatPageLoadingCopy } from '@/components/openchat-page-loading'
+import { OpenchatHydrateLoadingShell, openchatPageLoadingCopy } from '@/components/openchat-page-loading'
 import { RouteErrorFallback } from '@/components/route-error-fallback'
 import { hydrateFallbackPathname, resolveHydrateLoadingKind } from '@/lib/openchat-room-path'
 import {
   applyOpenchatTheme,
+  OPENCHAT_THEME_BODY_PAINT_SCRIPT,
+  OPENCHAT_THEME_BODY_SYNC_SCRIPT,
   OPENCHAT_THEME_INIT_SCRIPT,
   readStoredOpenchatTheme,
 } from '@/lib/openchat-theme'
@@ -76,6 +78,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body suppressHydrationWarning>
+        <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: OPENCHAT_THEME_BODY_PAINT_SCRIPT }} />
         <noscript>
           <div
             style={{
@@ -109,15 +112,17 @@ export default function App() {
 }
 
 /** SPA 초기 청크 로딩 중 — 경로별 문구, 앱 테마(var(--bg)) 유지 */
+/** SPA `index.html` 에 정적으로 포함됨 — 인라인 배경 금지(빌드 시 dark 로 박힘). 클래스 + head/body 테마 스크립트 */
 export function HydrateFallback() {
   const kind = resolveHydrateLoadingKind(hydrateFallbackPathname())
   const copy = openchatPageLoadingCopy[kind]
   const variant = kind === 'roomChat' ? 'chat' : 'page'
 
   return (
-    <div className='openchat-hydrate-fallback'>
-      <OpenchatPageLoadingShell variant={variant} fullscreen {...copy} />
-    </div>
+    <>
+      <OpenchatHydrateLoadingShell variant={variant} {...copy} />
+      <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: OPENCHAT_THEME_BODY_SYNC_SCRIPT }} />
+    </>
   )
 }
 
