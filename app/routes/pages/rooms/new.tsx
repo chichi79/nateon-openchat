@@ -2,12 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useActionData, useNavigate, useSubmit } from 'react-router'
 
 import type { RoomPolicy } from '@/features/openchat/openchat.types'
-import { OpenchatRoomIcon } from '@/components/openchat-room-icon'
+import { OpenchatRoomAppearanceFields } from '@/components/openchat-room-appearance-fields'
 import { ensureOpenchatNickname, openchatDisplaySenderName } from '@/lib/openchat-display-name'
 import { ensureOpenchatClientId } from '@/lib/openchat-identity'
-import { readRoomIconDataUrl } from '@/lib/openchat-room-icon'
 import { createRoom } from '@/services/openchat.service'
 import { useLocalStorageState } from '@/hooks/use-local-storage-state'
+import { formatOpenchatPageTitle } from '@/lib/openchat-brand'
+
+import type { Route } from './+types/new'
+
+export function meta(): Route.MetaDescriptors {
+  return [{ title: formatOpenchatPageTitle('방 만들기') }]
+}
 
 export async function clientAction({ request }: { request: Request }) {
   const form = await request.formData()
@@ -21,6 +27,8 @@ export async function clientAction({ request }: { request: Request }) {
     .filter(Boolean)
   const iconUrlRaw = String(form.get('iconUrl') ?? '').trim()
   const iconUrl = iconUrlRaw || undefined
+  const chatBackgroundUrlRaw = String(form.get('chatBackgroundUrl') ?? '').trim()
+  const chatBackgroundUrl = chatBackgroundUrlRaw || undefined
 
   try {
     const room = await createRoom({
@@ -30,6 +38,7 @@ export async function clientAction({ request }: { request: Request }) {
       ownerNickname,
       ownerClientId: ensureOpenchatClientId(),
       iconUrl,
+      chatBackgroundUrl,
     })
     return { room, error: undefined as string | undefined }
   } catch (e) {
@@ -93,8 +102,7 @@ export default function NewRoomPage() {
   const [policy, setPolicy] = useState<RoomPolicy>('gated_open')
   const [tags, setTags] = useState('MD, 커뮤니티')
   const [iconUrl, setIconUrl] = useState<string | null>(null)
-  const [iconError, setIconError] = useState<string | null>(null)
-  const [iconBusy, setIconBusy] = useState(false)
+  const [chatBackgroundUrl, setChatBackgroundUrl] = useState<string | null>(null)
 
   const canSubmit = useMemo(() => title.trim().length > 0, [title])
 
@@ -141,55 +149,16 @@ export default function NewRoomPage() {
       >
         <input type='hidden' name='ownerNickname' value={nickname || openchatDisplaySenderName()} />
         <input type='hidden' name='iconUrl' value={iconUrl ?? ''} />
+        <input type='hidden' name='chatBackgroundUrl' value={chatBackgroundUrl ?? ''} />
 
-        <div className='space-y-3'>
-          <div className='text-sm font-medium'>방 아이콘</div>
-          <div className='flex flex-wrap items-center gap-4'>
-            <OpenchatRoomIcon roomId='preview' title={title || '방'} iconUrl={iconUrl} size={56} />
-            <div className='flex min-w-0 flex-1 flex-col gap-2'>
-              <p className='text-xs text-slate-500 dark:text-zinc-500'>
-                등록하지 않으면 방 제목 첫 글자로 표시됩니다.
-              </p>
-              <div className='flex flex-wrap gap-2'>
-                <label className='btn-ghost inline-flex h-9 cursor-pointer items-center px-3 text-xs'>
-                  {iconBusy ? '처리 중…' : iconUrl ? '이미지 변경' : '이미지 등록'}
-                  <input
-                    type='file'
-                    accept='image/*'
-                    className='sr-only'
-                    disabled={iconBusy}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      e.target.value = ''
-                      if (!f) return
-                      setIconError(null)
-                      setIconBusy(true)
-                      void readRoomIconDataUrl(f)
-                        .then((url) => setIconUrl(url))
-                        .catch((err) => {
-                          setIconError(err instanceof Error ? err.message : '이미지를 등록할 수 없습니다.')
-                        })
-                        .finally(() => setIconBusy(false))
-                    }}
-                  />
-                </label>
-                {iconUrl ? (
-                  <button
-                    type='button'
-                    className='btn-ghost h-9 px-3 text-xs'
-                    onClick={() => {
-                      setIconUrl(null)
-                      setIconError(null)
-                    }}
-                  >
-                    제거
-                  </button>
-                ) : null}
-              </div>
-              {iconError ? <p className='text-xs text-rose-500 dark:text-rose-400'>{iconError}</p> : null}
-            </div>
-          </div>
-        </div>
+        <OpenchatRoomAppearanceFields
+          roomId='preview'
+          roomTitle={title || '방'}
+          iconUrl={iconUrl}
+          chatBackgroundUrl={chatBackgroundUrl}
+          onIconUrlChange={setIconUrl}
+          onChatBackgroundUrlChange={setChatBackgroundUrl}
+        />
 
         <div className='space-y-2'>
           <label htmlFor='title' className='block text-sm font-medium'>

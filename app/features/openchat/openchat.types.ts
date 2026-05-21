@@ -10,6 +10,8 @@ export type OpenChatRoom = {
   ownerClientId?: string
   /** 방 아이콘 이미지(data URL 등). 없으면 제목 첫 글자 아바타 */
   iconUrl?: string
+  /** 채팅 메시지 목록 배경(data URL 등) */
+  chatBackgroundUrl?: string
   createdAt: string
 }
 
@@ -67,9 +69,21 @@ export type CreateRoomRequest = {
   ownerNickname: string
   ownerClientId?: string
   iconUrl?: string
+  chatBackgroundUrl?: string
 }
 
 export type CreateRoomResponse = {
+  room: OpenChatRoom
+}
+
+/** 방장만 — 아이콘·채팅 배경 변경. 빈 문자열 필드는 해당 항목 제거 */
+export type UpdateRoomAppearanceRequest = {
+  ownerNickname: string
+  iconUrl?: string
+  chatBackgroundUrl?: string
+}
+
+export type UpdateRoomAppearanceResponse = {
   room: OpenChatRoom
 }
 

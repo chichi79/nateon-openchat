@@ -21,6 +21,8 @@ import type {
   RoomInviteInfo,
   SetRoomDisplayNameRequest,
   SetRoomDisplayNameResponse,
+  UpdateRoomAppearanceRequest,
+  UpdateRoomAppearanceResponse,
 } from '@/features/openchat/openchat.types'
 import { toggleReactionMap } from '@/lib/openchat-message-reactions'
 import { isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
@@ -167,6 +169,9 @@ function matchPath(pathname: string) {
 
   const displayNameMatch = pathname.match(/^\/api\/openchat\/rooms\/([^/]+)\/display-name$/)
   if (displayNameMatch) return { kind: 'setDisplayName' as const, roomId: decodeURIComponent(displayNameMatch[1]!) }
+
+  const appearanceMatch = pathname.match(/^\/api\/openchat\/rooms\/([^/]+)\/appearance$/)
+  if (appearanceMatch) return { kind: 'roomAppearance' as const, roomId: decodeURIComponent(appearanceMatch[1]!) }
 
   return { kind: 'unknown' as const }
 }
@@ -410,6 +415,11 @@ async function handleCreateRoom(method: string, request: Request) {
 
   const iconUrl = typeof body?.iconUrl === 'string' && body.iconUrl.trim() ? body.iconUrl.trim() : undefined
   if (iconUrl && iconUrl.length > 150_000) return badRequest('icon image is too large')
+  const chatBackgroundUrl =
+    typeof body?.chatBackgroundUrl === 'string' && body.chatBackgroundUrl.trim()
+      ? body.chatBackgroundUrl.trim()
+      : undefined
+  if (chatBackgroundUrl && chatBackgroundUrl.length > 500_000) return badRequest('background image is too large')
 
   const room: OpenChatRoom = {
     id,
@@ -419,6 +429,7 @@ async function handleCreateRoom(method: string, request: Request) {
     ownerNickname,
     ...(ownerClientId ? { ownerClientId } : {}),
     ...(iconUrl ? { iconUrl } : {}),
+    ...(chatBackgroundUrl ? { chatBackgroundUrl } : {}),
     createdAt: nowIso(),
   }
 
@@ -454,6 +465,54 @@ async function handleRoom(method: string, roomId: string) {
   if (!room) return notFound('Room not found')
 
   const payload: GetRoomResponse = { room }
+  return json(payload)
+}
+
+async function handleRoomAppearance(method: string, roomId: string, request: Request) {
+  if (method !== 'POST') return methodNotAllowed()
+
+  const room = db.rooms.find((r) => r.id === roomId)
+  if (!room) return notFound('Room not found')
+
+  let body: UpdateRoomAppearanceRequest | undefined
+  try {
+    body = (await request.json()) as UpdateRoomAppearanceRequest
+  } catch {
+    return badRequest('Invalid JSON body')
+  }
+
+  const ownerNickname = (body?.ownerNickname ?? '').trim()
+  if (!ownerNickname) return badRequest('ownerNickname is required')
+  const clientId = readClientIdFromRequest(request)
+  if (!isOpenchatRoomOwner(room, resolveMemberKey(roomId, ownerNickname, clientId), clientId)) {
+    return forbidden('only room owner can update appearance')
+  }
+
+  const idx = db.rooms.findIndex((r) => r.id === roomId)
+  const cur = db.rooms[idx]!
+  const next: OpenChatRoom = { ...cur }
+
+  if (body?.iconUrl !== undefined) {
+    const v = body.iconUrl.trim()
+    if (!v) delete next.iconUrl
+    else {
+      if (v.length > 150_000) return badRequest('icon image is too large')
+      next.iconUrl = v
+    }
+  }
+  if (body?.chatBackgroundUrl !== undefined) {
+    const v = body.chatBackgroundUrl.trim()
+    if (!v) delete next.chatBackgroundUrl
+    else {
+      if (v.length > 500_000) return badRequest('background image is too large')
+      next.chatBackgroundUrl = v
+    }
+  }
+
+  db.rooms[idx] = next
+  persist()
+
+  const payload: UpdateRoomAppearanceResponse = { room: next }
   return json(payload)
 }
 
@@ -1284,6 +1343,8 @@ async function handleSetDisplayName(method: string, roomId: string, request: Req
         return handleDisplayNames(method, match.roomId, url, req)
       case 'setDisplayName':
         return handleSetDisplayName(method, match.roomId, req)
+      case 'roomAppearance':
+        return handleRoomAppearance(method, match.roomId, req)
       default:
         return notFound('Unknown API endpoint')
     }

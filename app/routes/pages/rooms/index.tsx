@@ -9,7 +9,15 @@ import { bootstrapOpenchatIdentityOnRoomList, completeOpenchatNicknameIntro } fr
 import { isViteEnvFalse } from '@/lib/vite-env-flags'
 import { resetOpenchatMockStorage } from '@/mocks/install-mock-fetch'
 import { filterRoomsByParams, subscribeRoomsCollection } from '@/services/openchat-firestore.service'
+import { formatOpenchatPageTitle } from '@/lib/openchat-brand'
 import { listRooms } from '@/services/openchat.service'
+
+import type { Route } from './+types/index'
+
+export function meta(): Route.MetaDescriptors {
+  return [{ title: formatOpenchatPageTitle('채팅방 목록') }]
+}
+
 export async function clientLoader({ request }: { request: Request }) {
   const url = new URL(request.url)
   const q = url.searchParams.get('q') ?? ''

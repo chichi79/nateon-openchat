@@ -33,6 +33,7 @@ import type {
   MyClientParticipationsResponse,
   OpenChatMessage,
   OpenChatRoom,
+  UpdateRoomAppearanceRequest,
   PostMessageRequest,
   RoomDisplayNamesResponse,
   RoomInviteInfo,
@@ -127,10 +128,14 @@ function tsToIso(t: Timestamp | { toDate?: () => Date } | undefined | null): str
   return new Date().toISOString()
 }
 
+function optionalImageUrl(raw: unknown): string | undefined {
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : undefined
+}
+
 function roomFromSnap(id: string, data: Record<string, unknown>): OpenChatRoom {
   const ownerClientIdRaw = data.ownerClientId
-  const iconUrlRaw = data.iconUrl
-  const iconUrl = typeof iconUrlRaw === 'string' && iconUrlRaw.trim() ? iconUrlRaw.trim() : undefined
+  const iconUrl = optionalImageUrl(data.iconUrl)
+  const chatBackgroundUrl = optionalImageUrl(data.chatBackgroundUrl)
   return {
     id,
     title: String(data.title ?? ''),
@@ -140,6 +145,7 @@ function roomFromSnap(id: string, data: Record<string, unknown>): OpenChatRoom {
     ownerClientId:
       typeof ownerClientIdRaw === 'string' && ownerClientIdRaw.trim() ? ownerClientIdRaw.trim() : undefined,
     ...(iconUrl ? { iconUrl } : {}),
+    ...(chatBackgroundUrl ? { chatBackgroundUrl } : {}),
     createdAt: tsToIso(data.createdAt as Timestamp | undefined),
   }
 }
@@ -217,6 +223,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
   const now = serverTimestamp()
   const ownerClientId = body.ownerClientId?.trim() || undefined
   const iconUrl = body.iconUrl?.trim() || undefined
+  const chatBackgroundUrl = body.chatBackgroundUrl?.trim() || undefined
   const room: OpenChatRoom = {
     id,
     title,
@@ -225,6 +232,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
     ownerNickname: body.ownerNickname.trim(),
     ownerClientId,
     ...(iconUrl ? { iconUrl } : {}),
+    ...(chatBackgroundUrl ? { chatBackgroundUrl } : {}),
     createdAt: new Date().toISOString(),
   }
   const batch = writeBatch(firestore())
@@ -235,6 +243,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
     ownerNickname: room.ownerNickname,
     ...(ownerClientId ? { ownerClientId } : {}),
     ...(iconUrl ? { iconUrl } : {}),
+    ...(chatBackgroundUrl ? { chatBackgroundUrl } : {}),
     createdAt: now,
     managers: [],
     blocked: [],
@@ -263,6 +272,59 @@ export async function getRoom(roomId: string): Promise<OpenChatRoom> {
   const d = await getDoc(roomRef(roomId))
   if (!d.exists()) throw new Error('Room not found')
   return roomFromSnap(d.id, d.data() as Record<string, unknown>)
+}
+
+/** 방 메타(아이콘·배경 등) 실시간 반영 */
+export function subscribeRoom(roomId: string, onUpdate: (room: OpenChatRoom) => void): () => void {
+  return onSnapshot(
+    roomRef(roomId),
+    (snap) => {
+      if (!snap.exists()) return
+      onUpdate(roomFromSnap(snap.id, snap.data() as Record<string, unknown>))
+    },
+    (err) => {
+      console.error('[openchat-firestore] subscribeRoom', err)
+    },
+  )
+}
+
+const APPEARANCE_MAX_ICON_LEN = 150_000
+const APPEARANCE_MAX_BG_LEN = 500_000
+
+export async function updateRoomAppearance(
+  roomId: string,
+  body: UpdateRoomAppearanceRequest,
+  clientId?: string | null,
+): Promise<OpenChatRoom> {
+  const room = await getRoom(roomId)
+  const ownerNickname = body.ownerNickname.trim()
+  if (!ownerNickname) throw new Error('ownerNickname is required')
+  if (!isOpenchatRoomOwner(room, ownerNickname, clientId)) {
+    throw new Error('only room owner can update appearance')
+  }
+
+  const patch: Record<string, unknown> = {}
+  if (body.iconUrl !== undefined) {
+    const v = body.iconUrl.trim()
+    if (!v) patch.iconUrl = deleteField()
+    else {
+      if (v.length > APPEARANCE_MAX_ICON_LEN) throw new Error('icon image is too large')
+      patch.iconUrl = v
+    }
+  }
+  if (body.chatBackgroundUrl !== undefined) {
+    const v = body.chatBackgroundUrl.trim()
+    if (!v) patch.chatBackgroundUrl = deleteField()
+    else {
+      if (v.length > APPEARANCE_MAX_BG_LEN) throw new Error('background image is too large')
+      patch.chatBackgroundUrl = v
+    }
+  }
+
+  if (Object.keys(patch).length === 0) return room
+
+  await updateDoc(roomRef(roomId), patch)
+  return getRoom(roomId)
 }
 
 export async function listMessages(roomId: string): Promise<OpenChatMessage[]> {

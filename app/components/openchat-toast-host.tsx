@@ -27,14 +27,11 @@ export function OpenchatToastHost({ className }: OpenchatToastHostProps) {
       aria-relevant='additions'
     >
       {toasts.map((t) => (
-        <div
-          key={t.id}
-          className='openchat-toast-enter pointer-events-auto flex w-[min(24rem,calc(100%-2rem))] max-w-full items-center gap-2 rounded-full border border-slate-200/80 bg-white/95 px-4 py-2 text-sm font-medium text-slate-800 shadow-lg backdrop-blur-sm dark:border-white/10 dark:bg-[#161a25]/95 dark:text-zinc-100'
-        >
-          <span className='min-w-0 flex-1 text-center'>{t.message}</span>
+        <div key={t.id} className='openchat-toast openchat-toast-enter pointer-events-auto'>
+          <span className='openchat-toast-message'>{t.message}</span>
           <button
             type='button'
-            className='shrink-0 rounded-full p-1 text-slate-500 transition hover:bg-slate-900/5 hover:text-slate-800 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100'
+            className='openchat-toast-close'
             aria-label='닫기'
             onClick={() => dismissOpenchatToast(t.id)}
           >

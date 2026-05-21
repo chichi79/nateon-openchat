@@ -768,7 +768,7 @@ html[data-theme='dark'] .openchat-page-loading-shell--page {
 }
 
 html[data-theme='light'] .openchat-page-loading-shell--chat {
-  background-color: #eceff4 !important;
+  background-color: var(--openchat-chat-panel-bg) !important;
   color: #0f172a !important;
 }
 
@@ -813,7 +813,7 @@ html[data-theme='dark'] .openchat-page-loading-shell--chat {
 }
 
 .openchat-page-loading-shell--chat[data-theme='light'] {
-  background-color: #eceff4 !important;
+  background-color: var(--openchat-chat-panel-bg) !important;
   color: #0f172a !important;
 }
 
@@ -1595,7 +1595,7 @@ html[data-theme='dark'] .openchat-compose-emoji-cell:hover {
   font-weight: 600;
   line-height: 1.25;
   color: #949ba4;
-  background: #eceff4;
+  background: var(--openchat-chat-panel-bg);
   cursor: not-allowed;
   transition:
     background-color 0.15s,
@@ -1636,8 +1636,71 @@ html[data-theme='dark'] .openchat-compose-send:not(:disabled):hover {
   color: #949ba4;
   white-space: nowrap;
 }
+
+/* 라이트 모드 + 배경 이미지 — 시간·읽음·더보기 밝은 흰색 */
+html:not(.dark) .openchat-chat-scroll--has-bg .openchat-msg-meta {
+  color: #ffffff;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.45),
+    0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
 html[data-theme='dark'] .openchat-msg-meta {
   color: #6a7484;
+}
+
+.openchat-msg-menu-btn {
+  display: inline-flex;
+  height: 1.5rem;
+  width: 1.5rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: #949ba4;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+html:not(.dark) .openchat-chat-scroll--has-bg .openchat-msg-menu-btn {
+  color: #ffffff;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.45)) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
+}
+
+html:not(.dark) .openchat-chat-scroll--has-bg .openchat-msg-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+html:not(.dark) .openchat-chat-scroll--has-bg .openchat-msg-menu-btn:active {
+  background: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+}
+
+html:not(.dark) .openchat-msg-menu-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #191f28;
+}
+
+html:not(.dark) .openchat-msg-menu-btn:active {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+html[data-theme='dark'] .openchat-msg-menu-btn {
+  color: #949ba4;
+}
+
+html[data-theme='dark'] .openchat-msg-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e7ebf3;
+}
+
+html[data-theme='dark'] .openchat-msg-menu-btn:active {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .openchat-msg-reaction-chip {
@@ -1965,6 +2028,19 @@ html.openchat-room-chat-active .openchat-chat-scroll {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+.openchat-chat-scroll--has-bg {
+  position: relative;
+  background-color: var(--openchat-chat-panel-bg);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.openchat-chat-scroll--has-bg > ul {
+  position: relative;
+  z-index: 1;
 }
 
 html.openchat-room-chat-active .openchat-room-layout .openchat-room-sticky-stack {
@@ -2681,6 +2757,88 @@ html[data-theme='dark'] .openchat-typing-float-dots {
     right: 0;
     width: auto;
   }
+}
+
+.openchat-toast {
+  display: flex;
+  width: min(24rem, calc(100% - 2rem));
+  max-width: 100%;
+  align-items: center;
+  gap: 0.625rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: #ffffff;
+  padding: 0.625rem 0.75rem 0.625rem 1rem;
+  color: #191f28;
+  box-shadow:
+    0 4px 6px rgba(15, 23, 42, 0.06),
+    0 12px 28px rgba(15, 23, 42, 0.14);
+}
+
+html.dark .openchat-toast {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: #1c2130;
+  color: #f2f3f5;
+  box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.25),
+    0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+.openchat-toast-message {
+  min-width: 0;
+  flex: 1;
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+}
+
+.openchat-toast-close {
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  padding: 0.25rem;
+  font-size: 0.875rem;
+  line-height: 1;
+  color: #949ba4;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.openchat-toast-close:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #191f28;
+}
+
+html.dark .openchat-toast-close {
+  color: #9ba4b3;
+}
+
+html.dark .openchat-toast-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2f3f5;
+}
+
+.openchat-system-msg {
+  border-radius: 9999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.25rem 0.75rem;
+  text-align: center;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: #4e5968;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+html.dark .openchat-system-msg {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(28, 33, 48, 0.92);
+  color: #c5ccd3;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
 }
 
 .openchat-toast-enter {

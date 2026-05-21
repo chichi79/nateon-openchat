@@ -14,6 +14,7 @@ import {
 } from '@/lib/openchat-theme'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
 import { getFirebaseApp, isFirebaseConfigured } from '@/firebase'
+import { OPENCHAT_APP_DESCRIPTION, OPENCHAT_APP_TITLE, openchatFaviconLinks } from '@/lib/openchat-brand'
 import { isViteEnvFalse, isViteEnvTrue } from '@/lib/vite-env-flags'
 import { installMockFetch } from '@/mocks/install-mock-fetch'
 
@@ -50,7 +51,15 @@ if (firestoreLive) {
   )
 }
 
+export function meta(): Route.MetaDescriptors {
+  return [
+    { title: OPENCHAT_APP_TITLE },
+    { name: 'description', content: OPENCHAT_APP_DESCRIPTION },
+  ]
+}
+
 export const links: Route.LinksFunction = () => [
+  ...openchatFaviconLinks(),
   { rel: 'preconnect', href: 'https://cdn.jsdelivr.net', crossOrigin: 'anonymous' },
   { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
   { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossOrigin: 'anonymous' },
@@ -74,6 +83,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name='viewport'
           content='width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content'
         />
+        <title>{OPENCHAT_APP_TITLE}</title>
         <Meta />
         <Links />
       </head>

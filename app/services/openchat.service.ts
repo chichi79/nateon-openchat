@@ -17,6 +17,8 @@ import type {
   RoomInviteInfo,
   RoomPolicy,
   SetRoomDisplayNameResponse,
+  UpdateRoomAppearanceRequest,
+  UpdateRoomAppearanceResponse,
 } from '@/features/openchat/openchat.types'
 
 import { useOpenchatFirestore } from '@/config/openchat-backend'
@@ -71,6 +73,41 @@ export async function getRoom(roomId: string): Promise<OpenChatRoom> {
   if (useOpenchatFirestore()) return openchatFs.getRoom(roomId)
   const res = await fetch(`/api/openchat/rooms/${encodeURIComponent(roomId)}`, { headers: { ...ocHeaders() } })
   const data = await parseJson<GetRoomResponse>(res)
+  return data.room
+}
+
+export function subscribeRoom(roomId: string, onUpdate: (room: OpenChatRoom) => void): () => void {
+  if (useOpenchatFirestore()) return openchatFs.subscribeRoom(roomId, onUpdate)
+  let cancelled = false
+  const tick = async () => {
+    if (cancelled) return
+    try {
+      const room = await getRoom(roomId)
+      if (!cancelled) onUpdate(room)
+    } catch {
+      /* room deleted */
+    }
+  }
+  void tick()
+  const iv = window.setInterval(tick, 3000)
+  return () => {
+    cancelled = true
+    window.clearInterval(iv)
+  }
+}
+
+export async function updateRoomAppearance(
+  roomId: string,
+  body: UpdateRoomAppearanceRequest,
+): Promise<OpenChatRoom> {
+  const payload = { ...body, ownerNickname: body.ownerNickname.trim() }
+  if (useOpenchatFirestore()) return openchatFs.updateRoomAppearance(roomId, payload, browserClientId())
+  const res = await fetch(`/api/openchat/rooms/${encodeURIComponent(roomId)}/appearance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...ocHeaders() },
+    body: JSON.stringify(payload),
+  })
+  const data = await parseJson<UpdateRoomAppearanceResponse>(res)
   return data.room
 }
 

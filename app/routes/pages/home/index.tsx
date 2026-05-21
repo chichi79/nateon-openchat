@@ -1,6 +1,14 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
+import { formatOpenchatPageTitle } from '@/lib/openchat-brand'
+
+import type { Route } from './+types/index'
+
+export function meta(): Route.MetaDescriptors {
+  return [{ title: formatOpenchatPageTitle('홈') }]
+}
+
 function FeatureCard({
   icon,
   title,
@@ -34,7 +42,8 @@ const IMPLEMENTED_FEATURES: FeatureGroup[] = [
     title: '방·목록',
     summary: '만들기부터 찾기까지',
     items: [
-      '방 만들기 — 제목, 정책(초대·공개·신청/승인), 태그, 방 아이콘',
+      '방 만들기 — 제목, 정책(초대·공개·신청/승인), 태그, 방 아이콘·채팅 배경',
+      '방장 전용 「꾸미기」 — 아이콘·배경 나중에 변경',
       '목록 검색·정책 필터, 태그로 주제 구분',
       '채팅 중 다른 방으로 이동(참여 방 사이드바·모바일 드로어)',
     ],

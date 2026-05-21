@@ -1,5 +1,13 @@
 import { Link } from 'react-router'
 
+import { formatOpenchatPageTitle } from '@/lib/openchat-brand'
+
+import type { Route } from './+types/not-found'
+
+export function meta(): Route.MetaDescriptors {
+  return [{ title: formatOpenchatPageTitle('페이지를 찾을 수 없음') }]
+}
+
 export default function NotFoundPage() {
   return (
     <main className='mx-auto flex min-h-dvh max-w-3xl flex-col items-center justify-center px-6 py-16 text-center'>

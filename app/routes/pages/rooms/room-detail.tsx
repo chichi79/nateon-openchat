@@ -51,6 +51,8 @@ import {
 import { OpenchatChatSearchBar } from '@/components/openchat-chat-search-bar'
 import { ComposeEmojiPicker } from '@/components/compose-emoji-picker'
 import { OpenchatPageLoading, openchatPageLoadingCopy } from '@/components/openchat-page-loading'
+import { OpenchatRoomAppearanceFields } from '@/components/openchat-room-appearance-fields'
+import { OpenchatRoomIcon } from '@/components/openchat-room-icon'
 import {
   OpenchatParticipationDrawer,
   OpenchatParticipationSidebar,
@@ -92,9 +94,11 @@ import {
   subscribeMyMembership,
   subscribeRoomMembers,
   subscribeRoomDisplayNames,
+  subscribeRoom,
   subscribeRoomReadStates,
   subscribeRoomTyping,
   unblockMember,
+  updateRoomAppearance,
 } from '@/services/openchat.service'
 import { subscribeRoomMessages } from '@/services/openchat-firestore.service'
 import { useFocusTrap } from '@/hooks/use-focus-trap'
@@ -108,8 +112,14 @@ import {
 import { isOpenchatMobileChatViewport } from '@/lib/openchat-mobile-chat'
 import { OpenchatToastHost } from '@/components/openchat-toast-host'
 import { RouteErrorFallback } from '@/components/route-error-fallback'
+import { formatOpenchatPageTitle } from '@/lib/openchat-brand'
 import { OPENCHAT_MOCK_DB_STORAGE_KEY } from '@/mocks/install-mock-fetch'
 import type { Route } from './+types/room-detail'
+
+export function meta({ loaderData }: Route.MetaArgs) {
+  const roomTitle = loaderData?.room?.title?.trim()
+  return [{ title: formatOpenchatPageTitle(roomTitle || '채팅방') }]
+}
 
 export async function clientLoader({ params }: { params: Record<string, string | undefined> }) {
   const raw = params.roomId
@@ -284,11 +294,12 @@ function Avatar({ name, size = 32 }: { name: string; size?: number }) {
 }
 
 export default function RoomDetailPage() {
-  const { room, messages, initialMe } = useLoaderData() as {
+  const { room: loaderRoom, messages, initialMe } = useLoaderData() as {
     room: OpenChatRoom
     messages: OpenChatMessage[]
     initialMe: GetMembershipResponse
   }
+  const [room, setRoom] = useState(loaderRoom)
   const revalidator = useRevalidator()
   const navigation = useNavigation()
   const { pathname } = useLocation()
@@ -376,6 +387,11 @@ export default function RoomDetailPage() {
 
   const [moderatorPanelTab, setModeratorPanelTab] = useState<ModeratorPanelTab>('members')
   const [moderatorPanelOpen, setModeratorPanelOpen] = useState(false)
+  const [appearancePanelOpen, setAppearancePanelOpen] = useState(false)
+  const [appearanceIconDraft, setAppearanceIconDraft] = useState<string | null>(null)
+  const [appearanceBgDraft, setAppearanceBgDraft] = useState<string | null>(null)
+  const [appearanceSaving, setAppearanceSaving] = useState(false)
+  const [appearanceError, setAppearanceError] = useState<string | null>(null)
   const chatSearchInputRef = useRef<HTMLInputElement>(null)
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
   const [chatSearchQuery, setChatSearchQuery] = useState('')
@@ -406,8 +422,24 @@ export default function RoomDetailPage() {
   }, [moderatorTabs])
 
   useEffect(() => {
-    setModeratorPanelOpen(false)
+    setRoom(loaderRoom)
+  }, [loaderRoom])
+
+  useEffect(() => {
+    return subscribeRoom(room.id, setRoom)
   }, [room.id])
+
+  useEffect(() => {
+    setModeratorPanelOpen(false)
+    setAppearancePanelOpen(false)
+  }, [room.id])
+
+  useEffect(() => {
+    if (!appearancePanelOpen) return
+    setAppearanceIconDraft(room.iconUrl ?? null)
+    setAppearanceBgDraft(room.chatBackgroundUrl ?? null)
+    setAppearanceError(null)
+  }, [appearancePanelOpen, room.iconUrl, room.chatBackgroundUrl])
 
   useEffect(() => {
     if (!moderatorPanelOpen) return
@@ -919,6 +951,43 @@ export default function RoomDetailPage() {
       showOpenchatToast('OS 알림은 거부됐지만, 이 탭에서는 토스트로 알려 드려요.')
     }
   }, [mentionNotifOn])
+
+  const handleSaveAppearance = useCallback(async () => {
+    if (!isOwner || appearanceSaving) return
+    const iconChanged = (appearanceIconDraft ?? '') !== (room.iconUrl ?? '')
+    const bgChanged = (appearanceBgDraft ?? '') !== (room.chatBackgroundUrl ?? '')
+    if (!iconChanged && !bgChanged) {
+      setAppearancePanelOpen(false)
+      return
+    }
+    setAppearanceSaving(true)
+    setAppearanceError(null)
+    try {
+      const updated = await updateRoomAppearance(room.id, {
+        ownerNickname: senderName,
+        ...(iconChanged ? { iconUrl: appearanceIconDraft ?? '' } : {}),
+        ...(bgChanged ? { chatBackgroundUrl: appearanceBgDraft ?? '' } : {}),
+      })
+      setRoom(updated)
+      setAppearancePanelOpen(false)
+      showOpenchatToast('방 꾸미기를 저장했어요.')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '저장에 실패했습니다.'
+      setAppearanceError(msg)
+      showOpenchatToast(msg)
+    } finally {
+      setAppearanceSaving(false)
+    }
+  }, [
+    isOwner,
+    appearanceSaving,
+    appearanceIconDraft,
+    appearanceBgDraft,
+    room.id,
+    room.iconUrl,
+    room.chatBackgroundUrl,
+    senderName,
+  ])
 
   const applyMentionPick = useCallback(
     (name: string) => {
@@ -1669,13 +1738,7 @@ export default function RoomDetailPage() {
             <path d='M4 7h16M4 12h16M4 17h16' strokeLinecap='round' />
           </svg>
         </button>
-        <div
-          className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white'
-          style={{ backgroundImage: gradientFor(room.id) }}
-          aria-hidden
-        >
-          {initialOf(room.title)}
-        </div>
+        <OpenchatRoomIcon roomId={room.id} title={room.title} iconUrl={room.iconUrl} size={40} className='rounded-full' />
         <div className='min-w-0 flex-1'>
           <h1 className='truncate text-base font-semibold leading-snug text-[#191f28] dark:text-white'>{room.title}</h1>
           <p className='truncate text-xs text-[#949ba4] dark:text-zinc-500'>
@@ -1691,6 +1754,35 @@ export default function RoomDetailPage() {
           </p>
         </div>
         <div className='flex shrink-0 items-center gap-0.5'>
+          {isOwner ? (
+            <button
+              type='button'
+              className={[
+                'inline-flex h-9 items-center gap-1 rounded-full px-2.5 text-xs font-medium transition sm:px-3',
+                appearancePanelOpen
+                  ? 'bg-[#5C87FF]/15 text-[#4a6bcc] dark:text-[#BFD0FF]'
+                  : 'text-[#949ba4] hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100',
+              ].join(' ')}
+              aria-expanded={appearancePanelOpen}
+              aria-controls='openchat-appearance-panel'
+              title={appearancePanelOpen ? '방 꾸미기 닫기' : '방 꾸미기'}
+              onClick={() => {
+                setAppearancePanelOpen((open) => {
+                  if (!open) setModeratorPanelOpen(false)
+                  return !open
+                })
+              }}
+            >
+              <svg viewBox='0 0 24 24' className='h-4 w-4 shrink-0' fill='none' stroke='currentColor' strokeWidth='1.8' aria-hidden>
+                <path
+                  d='M4 16l4-12h16l-4 12H4zM4 16l2 2h12l2-2'
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                />
+              </svg>
+              <span className='hidden sm:inline'>꾸미기</span>
+            </button>
+          ) : null}
           {moderatorTabs.length > 0 ? (
             <button
               type='button'
@@ -1703,7 +1795,12 @@ export default function RoomDetailPage() {
               aria-expanded={moderatorPanelOpen}
               aria-controls='openchat-moderator-panel'
               title={moderatorPanelOpen ? '멤버 관리 닫기' : '멤버 관리'}
-              onClick={() => setModeratorPanelOpen((open) => !open)}
+              onClick={() => {
+                setModeratorPanelOpen((open) => {
+                  if (!open) setAppearancePanelOpen(false)
+                  return !open
+                })
+              }}
             >
               <svg viewBox='0 0 24 24' className='h-4 w-4 shrink-0' fill='none' stroke='currentColor' strokeWidth='1.8' aria-hidden>
                 <path d='M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' strokeLinecap='round' strokeLinejoin='round' />
@@ -2167,6 +2264,68 @@ export default function RoomDetailPage() {
         </div>
       ) : null}
 
+      {appearancePanelOpen && isOwner ? (
+        <div
+          className='openchat-moderator-overlay'
+          role='dialog'
+          aria-modal='true'
+          aria-label='방 꾸미기'
+        >
+          <div id='openchat-appearance-panel' className='openchat-moderator-panel openchat-appearance-panel'>
+            <div className='openchat-mod-head'>
+              <div className='openchat-mod-tabs'>
+                <span className='openchat-mod-tab openchat-mod-tab--active'>방 꾸미기</span>
+              </div>
+              <button
+                type='button'
+                className='openchat-mod-close'
+                aria-label='방 꾸미기 닫기'
+                onClick={() => setAppearancePanelOpen(false)}
+              >
+                <svg viewBox='0 0 24 24' className='h-5 w-5' fill='none' stroke='currentColor' strokeWidth='1.8' aria-hidden>
+                  <path d='M18 6L6 18M6 6l12 12' strokeLinecap='round' strokeLinejoin='round' />
+                </svg>
+              </button>
+            </div>
+            <div className='openchat-moderator-panel-body openchat-mod-body'>
+              <p className='mb-4 text-xs text-slate-600 dark:text-zinc-400'>
+                방 아이콘과 채팅 배경은 방장만 바꿀 수 있어요. 저장하면 참여 중인 멤버 화면에도 반영됩니다.
+              </p>
+              <OpenchatRoomAppearanceFields
+                roomId={room.id}
+                roomTitle={room.title}
+                iconUrl={appearanceIconDraft}
+                chatBackgroundUrl={appearanceBgDraft}
+                onIconUrlChange={setAppearanceIconDraft}
+                onChatBackgroundUrlChange={setAppearanceBgDraft}
+              />
+              {appearanceError ? (
+                <p className='mt-3 text-sm text-rose-500 dark:text-rose-400'>{appearanceError}</p>
+              ) : null}
+              <div className='mt-5 flex justify-end gap-2 border-t border-slate-200/90 pt-4 dark:border-white/10'>
+                <button type='button' className='btn-ghost h-9 px-4 text-sm' onClick={() => setAppearancePanelOpen(false)}>
+                  취소
+                </button>
+                <button
+                  type='button'
+                  className='btn-primary h-9 px-4 text-sm'
+                  disabled={appearanceSaving}
+                  onClick={() => void handleSaveAppearance()}
+                >
+                  {appearanceSaving ? '저장 중…' : '저장'}
+                </button>
+              </div>
+            </div>
+          </div>
+          <button
+            type='button'
+            className='openchat-moderator-overlay-scrim'
+            aria-label='방 꾸미기 닫기'
+            onClick={() => setAppearancePanelOpen(false)}
+          />
+        </div>
+      ) : null}
+
       <div className='openchat-chat-panel relative min-w-0 overflow-hidden'>
         {isRoomDataLoading ? (
           <div className='openchat-page-loading-overlay'>
@@ -2178,7 +2337,20 @@ export default function RoomDetailPage() {
             입장(초대코드 또는 방장 승인) 후에 대화 내용을 볼 수 있어요.
           </div>
         ) : null}
-        <div ref={chatScrollRef} className='openchat-chat-scroll'>
+        <div
+          ref={chatScrollRef}
+          className={[
+            'openchat-chat-scroll',
+            room.chatBackgroundUrl ? 'openchat-chat-scroll--has-bg' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          style={
+            room.chatBackgroundUrl
+              ? { backgroundImage: `url(${room.chatBackgroundUrl})` }
+              : undefined
+          }
+        >
         <ul
           className={[
             'relative space-y-4 overflow-x-clip px-4 pt-0 sm:px-5',
@@ -2201,9 +2373,7 @@ export default function RoomDetailPage() {
               if (it.kind === 'day') {
                 return (
                   <li key={`day-${idx}`} className='flex items-center justify-center py-3'>
-                    <span className='rounded-full border border-slate-200 dark:border-white/5 bg-slate-900/[0.04] dark:bg-white/[0.03] px-3 py-1 text-[11px] text-slate-600 dark:text-zinc-400'>
-                      {it.day}
-                    </span>
+                    <span className='openchat-system-msg'>{it.day}</span>
                   </li>
                 )
               }
@@ -2219,7 +2389,7 @@ export default function RoomDetailPage() {
                       chatSearchActiveId === m.id ? 'openchat-chat-search-active-msg' : '',
                     ].join(' ')}
                   >
-                    <span className='rounded-full border border-slate-200 dark:border-white/5 bg-slate-900/[0.04] dark:bg-white/[0.03] px-3 py-1 text-center text-[11px] text-slate-600 dark:text-zinc-400'>
+                    <span className='openchat-system-msg'>
                       {m.text && chatSearchNorm
                         ? renderTextWithMentions(m.text, chatSearchQuery)
                         : m.text}
@@ -2388,7 +2558,7 @@ export default function RoomDetailPage() {
                             <>
                               <button
                                 type='button'
-                                className='inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#949ba4] transition hover:bg-black/5 active:bg-black/10 dark:hover:bg-white/10 dark:active:bg-white/15'
+                                className='openchat-msg-menu-btn'
                                 aria-expanded={messageMenu?.id === m.id}
                                 aria-haspopup='dialog'
                                 aria-label='메시지 메뉴'
@@ -2415,7 +2585,7 @@ export default function RoomDetailPage() {
                               </span>
                               <button
                                 type='button'
-                                className='inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#949ba4] transition hover:bg-black/5 active:bg-black/10 dark:hover:bg-white/10 dark:active:bg-white/15'
+                                className='openchat-msg-menu-btn'
                                 aria-expanded={messageMenu?.id === m.id}
                                 aria-haspopup='dialog'
                                 aria-label='메시지 메뉴'

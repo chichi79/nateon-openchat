@@ -36,8 +36,8 @@ export function textMentionsNickname(text: string, nickname: string): boolean {
 }
 
 /** 메시지에 `@별칭` 이 하나라도 있으면 true (별칭은 `@` 없이 전달) */
-export function textMentionsAny(text: string, aliases: readonly string[]): boolean {
-  if (!text.trim() || aliases.length === 0) return false
+export function textMentionsAny(text: string | undefined | null, aliases: readonly string[]): boolean {
+  if (!text?.trim() || aliases.length === 0) return false
   const aliasSet = new Set(aliases.map((a) => a.trim()).filter(Boolean))
   if (aliasSet.size === 0) return false
   for (const part of splitMentionParts(text)) {
