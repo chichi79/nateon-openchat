@@ -1642,7 +1642,28 @@ html[data-theme='dark'] .openchat-compose-send:not(:disabled):hover {
   white-space: nowrap;
 }
 
-/* 라이트 모드 + 배경 이미지 — 시간·읽음·더보기 밝은 흰색 */
+.openchat-msg-sender-label {
+  color: #4e5968;
+}
+
+html[data-theme='dark'] .openchat-msg-sender-label {
+  color: #d4d7dc;
+}
+
+/* 라이트 모드 + 배경 이미지 — 대화명·시간·읽음·더보기 밝은 흰색 */
+html:not(.dark) .openchat-chat-scroll--has-bg .openchat-msg-sender-label {
+  color: #ffffff;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.45),
+    0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+html:not(.dark) .openchat-chat-scroll--has-bg .openchat-msg-sender-owner-tag {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
 html:not(.dark) .openchat-chat-scroll--has-bg .openchat-msg-meta {
   color: #ffffff;
   text-shadow:

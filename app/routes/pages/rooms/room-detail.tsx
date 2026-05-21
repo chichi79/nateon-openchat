@@ -2403,7 +2403,7 @@ export default function RoomDetailPage() {
                       ].join(' ')}
                     >
                     {!isMine ? (
-                      <div className='mb-1 text-xs font-medium text-[#4e5968] dark:text-zinc-300'>
+                      <div className='openchat-msg-sender-label mb-1 text-xs font-medium'>
                         {chatSearchNorm
                           ? renderHighlightedPlain(senderLabel, chatSearchQuery, 'sender')
                           : senderLabel}
