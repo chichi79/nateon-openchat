@@ -1088,6 +1088,11 @@ html[data-theme='light'] .openchat-page-loading-shimmer {
   }
 }
 
+.openchat-msg-bubble {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .openchat-bubble-other {
   border-radius: 1rem;
   border-top-left-radius: 0.25rem;

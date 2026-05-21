@@ -2392,13 +2392,13 @@ export default function RoomDetailPage() {
                   {!isMine ? <OpenchatMemberAvatar name={senderLabel} size={28} isOwner={isMsgOwner} /> : null}
                   <div className={[
                       isMine
-                        ? 'ml-auto flex w-fit max-w-[75%] flex-col items-end space-y-0.5 sm:max-w-[28rem]'
+                        ? 'ml-auto flex min-w-0 w-full max-w-[75%] flex-col items-end space-y-0.5 sm:max-w-[28rem]'
                         : 'flex min-w-0 max-w-full flex-1 flex-row items-end gap-1.5 sm:max-w-[36rem]',
                     ].join(' ')}>
                     <div
                       className={[
                         isMine
-                          ? 'flex w-full flex-col items-end space-y-0.5'
+                          ? 'flex min-w-0 w-full max-w-full flex-col items-end space-y-0.5'
                           : 'flex max-w-[75%] flex-col items-start space-y-1 text-left sm:max-w-[28rem]',
                       ].join(' ')}
                     >
@@ -2413,16 +2413,14 @@ export default function RoomDetailPage() {
 
                     <div
                       className={[
-                        'flex items-end gap-1.5',
-                        isMine ? 'w-fit flex-row-reverse' : 'max-w-full',
+                        'flex min-w-0 items-end gap-1.5',
+                        isMine ? 'max-w-full flex-row-reverse' : 'max-w-full',
                       ].join(' ')}
                     >
-                      <div
-                        className='max-w-full shrink-0'
-                      >
+                      <div className='min-w-0 max-w-full'>
                     <div
                       className={[
-                        'block w-fit max-w-full px-3 py-2 text-[15px] leading-snug',
+                        'openchat-msg-bubble block min-w-0 max-w-full px-3 py-2 text-[15px] leading-snug',
                         isMine ? 'openchat-bubble-mine' : 'openchat-bubble-other',
                         m.deletedAt ? 'opacity-70 italic' : '',
                       ].join(' ')}
@@ -2490,7 +2488,7 @@ export default function RoomDetailPage() {
                           {m.text ? (
                             <div
                               className={[
-                                'min-w-0 whitespace-pre-wrap wrap-break-word',
+                                'min-w-0 max-w-full whitespace-pre-wrap wrap-break-word',
                                 isMine ? 'text-right' : 'text-left',
                               ].join(' ')}
                             >
