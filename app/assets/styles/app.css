@@ -1703,6 +1703,76 @@ html[data-theme='dark'] .openchat-msg-menu-btn:active {
   background: rgba(255, 255, 255, 0.15);
 }
 
+.openchat-member-avatar {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.openchat-member-avatar-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-weight: 600;
+  color: #fff;
+  box-shadow: 0 2px 8px -4px rgba(0, 0, 0, 0.45);
+  box-shadow:
+    0 2px 8px -4px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+.openchat-member-avatar--owner .openchat-member-avatar-face {
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 3.5px #5c87ff,
+    0 4px 12px -4px rgba(92, 135, 255, 0.55);
+}
+
+html[data-theme='dark'] .openchat-member-avatar--owner .openchat-member-avatar-face {
+  box-shadow:
+    0 0 0 2px #161a25,
+    0 0 0 3.5px #7ca1ff,
+    0 4px 14px -4px rgba(92, 135, 255, 0.45);
+}
+
+.openchat-member-avatar-owner-badge {
+  position: absolute;
+  right: -0.125rem;
+  bottom: -0.125rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1.5px solid #fff;
+  background: linear-gradient(135deg, #7ca1ff 0%, #5c87ff 55%, #7a55e6 100%);
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+html[data-theme='dark'] .openchat-member-avatar-owner-badge {
+  border-color: #161a25;
+}
+
+.openchat-msg-sender-owner-tag {
+  margin-left: 0.25rem;
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #3d6fcc;
+  background: rgba(92, 135, 255, 0.14);
+  vertical-align: middle;
+}
+
+html[data-theme='dark'] .openchat-msg-sender-owner-tag {
+  color: #9eb8ff;
+  background: rgba(92, 135, 255, 0.22);
+}
+
 .openchat-msg-reaction-chip {
   display: inline-flex;
   align-items: center;

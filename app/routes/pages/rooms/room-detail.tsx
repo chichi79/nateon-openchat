@@ -52,6 +52,7 @@ import { OpenchatChatSearchBar } from '@/components/openchat-chat-search-bar'
 import { ComposeEmojiPicker } from '@/components/compose-emoji-picker'
 import { OpenchatPageLoading, openchatPageLoadingCopy } from '@/components/openchat-page-loading'
 import { OpenchatRoomAppearanceFields } from '@/components/openchat-room-appearance-fields'
+import { OpenchatMemberAvatar } from '@/components/openchat-member-avatar'
 import { OpenchatRoomIcon } from '@/components/openchat-room-icon'
 import {
   OpenchatParticipationDrawer,
@@ -260,37 +261,6 @@ function policyChipFor(policy: OpenChatRoom['policy']) {
     case 'gated_open':
       return { label: '신청/승인형', cls: 'chip chip-brand' }
   }
-}
-
-function gradientFor(seed: string) {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
-  const a = h % 360
-  const b = (a + 60) % 360
-  return `linear-gradient(135deg, hsl(${a} 70% 58%) 0%, hsl(${b} 70% 50%) 100%)`
-}
-
-function initialOf(text: string) {
-  const t = text.trim()
-  if (!t) return '?'
-  return [...t][0]!.toUpperCase()
-}
-
-function Avatar({ name, size = 32 }: { name: string; size?: number }) {
-  const textClass =
-    size <= 24 ? 'text-[9px]' : size <= 28 ? 'text-[10px]' : size <= 32 ? 'text-[11px]' : 'text-xs'
-  return (
-    <span
-      className={[
-        'inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white shadow-[0_2px_8px_-4px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-slate-300/40 dark:ring-white/15',
-        textClass,
-      ].join(' ')}
-      style={{ width: size, height: size, backgroundImage: gradientFor(name) }}
-      aria-hidden
-    >
-      {initialOf(name)}
-    </span>
-  )
 }
 
 export default function RoomDetailPage() {
@@ -2070,7 +2040,7 @@ export default function RoomDetailPage() {
                     {pendingNicknames.map((n) => (
                       <li key={n} className='openchat-mod-row'>
                         <div className='openchat-mod-row-main'>
-                          <Avatar name={n} size={32} />
+                          <OpenchatMemberAvatar name={n} size={32} />
                           <span className='openchat-mod-row-name'>{n}</span>
                         </div>
                         <div className='openchat-mod-actions'>
@@ -2167,7 +2137,7 @@ export default function RoomDetailPage() {
                     return (
                       <li key={row.clientId ?? row.nickname} className='openchat-mod-row'>
                         <div className='openchat-mod-row-main'>
-                          <Avatar name={rowLabel} size={32} />
+                          <OpenchatMemberAvatar name={rowLabel} size={32} isOwner={isRowOwner} />
                           <span className='openchat-mod-row-name'>{rowLabel}</span>
                           {isRowOwner ? <span className='openchat-mod-tag'>방장</span> : null}
                           {isRowManager && !isRowOwner ? <span className='openchat-mod-tag'>매니저</span> : null}
@@ -2217,7 +2187,7 @@ export default function RoomDetailPage() {
                         return (
                           <li key={n} className='openchat-mod-row'>
                             <div className='openchat-mod-row-main'>
-                              <Avatar name={blockedLabel} size={28} />
+                              <OpenchatMemberAvatar name={blockedLabel} size={28} />
                               <span className='openchat-mod-row-name'>{blockedLabel}</span>
                             </div>
                             <button
@@ -2399,6 +2369,7 @@ export default function RoomDetailPage() {
               }
 
               const senderLabel = labelForMessage(m)
+              const isMsgOwner = isOpenchatRoomOwner(room, m.sender, m.senderClientId)
               const isMine = isOpenchatMessageMine(m, senderName, myClientId)
               const readCount = isMine && !m.deletedAt ? countReadersForMessage(m.createdAt, m.sender, readStates) : 0
               const replied = m.replyToMessageId ? sortedMessages.find((x) => x.id === m.replyToMessageId) : undefined
@@ -2418,7 +2389,7 @@ export default function RoomDetailPage() {
                     messageSlideInIds.has(m.id) ? (isMine ? 'openchat-msg-slide-in-mine' : 'openchat-msg-slide-in-other') : '',
                   ].join(' ')}
                 >
-                  {!isMine ? <Avatar name={senderLabel} size={28} /> : null}
+                  {!isMine ? <OpenchatMemberAvatar name={senderLabel} size={28} isOwner={isMsgOwner} /> : null}
                   <div className={[
                       isMine
                         ? 'ml-auto flex w-fit max-w-[75%] flex-col items-end space-y-0.5 sm:max-w-[28rem]'
@@ -2436,6 +2407,7 @@ export default function RoomDetailPage() {
                         {chatSearchNorm
                           ? renderHighlightedPlain(senderLabel, chatSearchQuery, 'sender')
                           : senderLabel}
+                        {isMsgOwner ? <span className='openchat-msg-sender-owner-tag'>방장</span> : null}
                       </div>
                     ) : null}
 
@@ -2951,7 +2923,7 @@ export default function RoomDetailPage() {
                   >
                     {isNicknameOpen ? (
                       <div className='flex h-full min-w-0 items-center gap-1 rounded-lg border border-[#e5e8ed] bg-[#f8f9fb] pl-1.5 pr-2 dark:border-white/10 dark:bg-white/[0.04]'>
-                        <Avatar name={senderName} size={20} />
+                        <OpenchatMemberAvatar name={senderName} size={20} isOwner={isOwner} />
                         <input
                           value={displayNameDraft}
                           onChange={(e) => setDisplayNameDraft(e.target.value)}
@@ -3002,7 +2974,7 @@ export default function RoomDetailPage() {
                           setIsNicknameOpen(true)
                         }}
                       >
-                        <Avatar name={senderName} size={20} />
+                        <OpenchatMemberAvatar name={senderName} size={20} isOwner={isOwner} />
                         <span className='openchat-compose-nickname-label'>{senderName}</span>
                       </button>
                     )}
