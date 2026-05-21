@@ -118,8 +118,7 @@ export default function NewRoomPage() {
       <div className='flex items-start justify-between gap-4'>
         <div>
           <h1 className='text-2xl font-semibold tracking-tight'>방 만들기</h1>
-          <p className='mt-1 text-sm text-slate-600 dark:text-zinc-400'>Mock API 또는 Firestore로 생성됩니다.</p>
-        </div>
+         </div>
         <Link to='/rooms' className='btn-ghost h-9 px-3 text-xs'>
           목록으로
         </Link>
