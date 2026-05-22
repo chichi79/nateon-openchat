@@ -46,6 +46,7 @@ import {
   readMentionNotificationsEnabled,
   setMentionNotificationsEnabled,
 } from '@/lib/openchat-mention-notification'
+import { OpenchatChatEmptyState } from '@/components/openchat-chat-empty-state'
 import { OpenchatChatSearchBar } from '@/components/openchat-chat-search-bar'
 import { OpenchatMessageLinkPreview } from '@/components/openchat-link-preview-card'
 import { OpenchatMessageText } from '@/components/openchat-message-text'
@@ -2490,9 +2491,11 @@ export default function RoomDetailPage() {
             void handleFiles(e.dataTransfer.files)
           }}
         >
-            {chatSearchNorm && messagesForDisplay.length === 0 ? (
-              <li className='flex justify-center py-16'>
-                <p className='text-sm text-[#949ba4] dark:text-zinc-500'>일치하는 메시지가 없어요.</p>
+            {canViewChatHistory && !isRoomDataLoading && sortedMessages.length === 0 ? (
+              <OpenchatChatEmptyState canPost={canPost} />
+            ) : chatSearchNorm && messagesForDisplay.length === 0 ? (
+              <li className='openchat-chat-empty openchat-chat-empty--inline'>
+                <p className='openchat-chat-empty-desc'>일치하는 메시지가 없어요.</p>
               </li>
             ) : null}
             {grouped.map((it, idx) => {
