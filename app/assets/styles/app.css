@@ -2347,9 +2347,16 @@ html[data-theme='dark'] .openchat-chat-search-icon {
   border: 1px solid #e5e8ed;
   background: #fff;
   padding: 0.45rem 0.65rem 0.45rem 2.25rem;
-  font-size: 0.875rem;
+  /* iOS: 16px 미만이면 포커스 시 자동 확대 */
+  font-size: 1rem;
   color: #191f28;
   outline: none;
+}
+
+@media (min-width: 768px) {
+  .openchat-chat-search-input {
+    font-size: 0.875rem;
+  }
 }
 
 .openchat-chat-search-input:focus {
