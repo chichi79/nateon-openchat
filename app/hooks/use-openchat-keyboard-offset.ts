@@ -39,9 +39,8 @@ export function blurOpenchatCompose() {
   }
 }
 
-/** 전송 후 키보드 유지 — 모바일 채팅방은 항상, PC는 포커스·키보드 열림 시 */
+/** 전송 후 키보드 유지 — 입력창 포커스 또는 키보드가 올라와 있을 때만 */
 export function shouldRetainComposeKeyboardAfterSend() {
-  if (isOpenchatMobileChatViewport()) return true
   return isOpenchatComposeFocused() || isOpenchatKeyboardLikelyOpen()
 }
 

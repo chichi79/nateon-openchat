@@ -109,6 +109,7 @@ import { useFocusTrap } from '@/hooks/use-focus-trap'
 import {
   blurOpenchatCompose,
   isOpenchatComposeFocused,
+  isOpenchatKeyboardLikelyOpen,
   retainOpenchatComposeFocus,
   shouldRetainComposeKeyboardAfterSend,
   syncOpenchatKeyboardLayout,
@@ -1042,7 +1043,8 @@ export default function RoomDetailPage() {
   const selectSticker = useCallback((emoji: string) => {
     setSelectedSticker(emoji)
     requestAnimationFrame(() => {
-      if (!isOpenchatMobileChatViewport() || isOpenchatComposeFocused()) {
+      /* 이모지 피커만 연 상태(키보드 없음)에서는 textarea 포커스·키패드 유발 안 함 */
+      if (isOpenchatComposeFocused() || isOpenchatKeyboardLikelyOpen()) {
         composeTextareaRef.current?.focus({ preventScroll: true })
       }
       syncOpenchatKeyboardLayout(composeBarRef.current)
