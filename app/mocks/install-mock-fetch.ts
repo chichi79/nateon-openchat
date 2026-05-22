@@ -76,6 +76,10 @@ export function installMockFetch() {
       return originalFetch(req)
     }
 
+    if (url.pathname === '/api/openchat/link-preview') {
+      return originalFetch(req)
+    }
+
     return handleOpenChatApiRequest(req)
   }
 }

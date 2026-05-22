@@ -29,6 +29,7 @@ export async function clientAction({ request }: { request: Request }) {
   const iconUrl = iconUrlRaw || undefined
   const chatBackgroundUrlRaw = String(form.get('chatBackgroundUrl') ?? '').trim()
   const chatBackgroundUrl = chatBackgroundUrlRaw || undefined
+  const chatBackgroundAd = form.get('chatBackgroundAd') === '1'
 
   try {
     const room = await createRoom({
@@ -39,6 +40,7 @@ export async function clientAction({ request }: { request: Request }) {
       ownerClientId: ensureOpenchatClientId(),
       iconUrl,
       chatBackgroundUrl,
+      ...(chatBackgroundAd ? { chatBackgroundAd: true } : {}),
     })
     return { room, error: undefined as string | undefined }
   } catch (e) {
@@ -103,6 +105,7 @@ export default function NewRoomPage() {
   const [tags, setTags] = useState('MD, 커뮤니티')
   const [iconUrl, setIconUrl] = useState<string | null>(null)
   const [chatBackgroundUrl, setChatBackgroundUrl] = useState<string | null>(null)
+  const [chatBackgroundAd, setChatBackgroundAd] = useState(false)
 
   const canSubmit = useMemo(() => title.trim().length > 0, [title])
 
@@ -133,9 +136,9 @@ export default function NewRoomPage() {
       </div>
 
       {actionData?.error ? (
-        <div className='rounded-xl border border-rose-500/35 bg-rose-500/10 px-4 py-3 text-sm text-rose-100'>
-          <div className='font-medium'>방을 만들지 못했어요</div>
-          <p className='mt-1 text-rose-100/90'>{actionData.error}</p>
+        <div className='rounded-xl border border-rose-500/35 bg-rose-500/10 px-4 py-3 text-sm text-rose-950 dark:text-rose-50/95'>
+          <div className='font-medium text-rose-900 dark:text-rose-100'>방을 만들지 못했어요</div>
+          <p className='mt-1 text-rose-900/90 dark:text-rose-100/90'>{actionData.error}</p>
         </div>
       ) : null}
 
@@ -150,14 +153,20 @@ export default function NewRoomPage() {
         <input type='hidden' name='ownerNickname' value={nickname || openchatDisplaySenderName()} />
         <input type='hidden' name='iconUrl' value={iconUrl ?? ''} />
         <input type='hidden' name='chatBackgroundUrl' value={chatBackgroundUrl ?? ''} />
+        <input type='hidden' name='chatBackgroundAd' value={chatBackgroundAd ? '1' : '0'} />
 
         <OpenchatRoomAppearanceFields
           roomId='preview'
           roomTitle={title || '방'}
           iconUrl={iconUrl}
           chatBackgroundUrl={chatBackgroundUrl}
+          chatBackgroundAd={chatBackgroundAd}
           onIconUrlChange={setIconUrl}
-          onChatBackgroundUrlChange={setChatBackgroundUrl}
+          onChatBackgroundUrlChange={(url) => {
+            setChatBackgroundUrl(url)
+            if (!url) setChatBackgroundAd(false)
+          }}
+          onChatBackgroundAdChange={setChatBackgroundAd}
         />
 
         <div className='space-y-2'>

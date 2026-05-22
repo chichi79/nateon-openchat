@@ -1,7 +1,9 @@
 import type {
   CreateRoomRequest,
   CreateRoomResponse,
+  FetchLinkPreviewResponse,
   GetRoomResponse,
+  OpenChatLinkPreview,
   GetMembershipResponse,
   JoinRoomRequest,
   JoinRoomResponse,
@@ -19,6 +21,7 @@ import type {
   SetRoomDisplayNameResponse,
   UpdateRoomAppearanceRequest,
   UpdateRoomAppearanceResponse,
+  UpdateRoomNoticeResponse,
 } from '@/features/openchat/openchat.types'
 
 import { useOpenchatFirestore } from '@/config/openchat-backend'
@@ -109,6 +112,25 @@ export async function updateRoomAppearance(
   })
   const data = await parseJson<UpdateRoomAppearanceResponse>(res)
   return data.room
+}
+
+export async function updateRoomNotice(roomId: string, actorNickname: string, text: string): Promise<OpenChatRoom> {
+  const actor = actorNickname.trim()
+  if (useOpenchatFirestore()) return openchatFs.updateRoomNotice(roomId, actor, text, browserClientId())
+  const res = await fetch(`/api/openchat/rooms/${encodeURIComponent(roomId)}/notice`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...ocHeaders() },
+    body: JSON.stringify({ actorNickname: actor, text }),
+  })
+  const data = await parseJson<UpdateRoomNoticeResponse>(res)
+  return data.room
+}
+
+export async function fetchLinkPreview(url: string): Promise<OpenChatLinkPreview | null> {
+  const sp = new URLSearchParams({ url: url.trim() })
+  const res = await fetch(`/api/openchat/link-preview?${sp}`, { headers: { ...ocHeaders() } })
+  const data = await parseJson<FetchLinkPreviewResponse>(res)
+  return data.preview
 }
 
 export async function listMessages(roomId: string): Promise<OpenChatMessage[]> {

@@ -3,6 +3,7 @@ import type { RefObject } from 'react'
 import { Link } from 'react-router'
 
 import type { MyClientParticipationRow, ParticipationRole } from '@/features/openchat/openchat.types'
+import { OpenchatAdSlot } from '@/components/openchat-ad-slot'
 import { OpenchatRoomIcon } from '@/components/openchat-room-icon'
 import { listMyParticipations } from '@/services/openchat.service'
 
@@ -24,6 +25,8 @@ type PanelProps = {
   onNavigate?: () => void
   showClose?: boolean
   onClose?: () => void
+  /** PC 고정 사이드바: 채팅방 목록 위 더미 광고 */
+  showAdSlot?: boolean
 }
 
 function useParticipationRows(currentRoomId: string, refreshKey?: string | number) {
@@ -60,7 +63,14 @@ function useParticipationRows(currentRoomId: string, refreshKey?: string | numbe
   return { rows, loading, error }
 }
 
-function ParticipationPanel({ currentRoomId, refreshKey, onNavigate, showClose, onClose }: PanelProps) {
+function ParticipationPanel({
+  currentRoomId,
+  refreshKey,
+  onNavigate,
+  showClose,
+  onClose,
+  showAdSlot = false,
+}: PanelProps) {
   const { rows, loading, error } = useParticipationRows(currentRoomId, refreshKey)
 
   return (
@@ -148,6 +158,8 @@ function ParticipationPanel({ currentRoomId, refreshKey, onNavigate, showClose, 
         )}
       </div>
 
+      {showAdSlot ? <OpenchatAdSlot placement='participation-sidebar' /> : null}
+
       <div className='openchat-participation-sidebar-foot'>
         <Link to='/rooms' className='openchat-participation-sidebar-foot-link' onClick={() => onNavigate?.()}>
           채팅방 목록
@@ -162,7 +174,7 @@ function ParticipationPanel({ currentRoomId, refreshKey, onNavigate, showClose, 
 export function OpenchatParticipationSidebar(props: Omit<PanelProps, 'showClose' | 'onClose'>) {
   return (
     <aside className='openchat-participation-sidebar' aria-label='참여한 방 목록'>
-      <ParticipationPanel {...props} />
+      <ParticipationPanel {...props} showAdSlot />
     </aside>
   )
 }
@@ -202,7 +214,13 @@ export function OpenchatParticipationDrawer({ open, onClose, panelRef, ...panelP
         aria-modal='true'
         aria-label='참여한 방 목록'
       >
-        <ParticipationPanel {...panelProps} showClose onClose={onClose} onNavigate={onClose} />
+        <ParticipationPanel
+          {...panelProps}
+          showClose
+          onClose={onClose}
+          onNavigate={onClose}
+          showAdSlot
+        />
       </div>
     </div>
   )

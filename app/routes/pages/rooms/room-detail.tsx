@@ -28,15 +28,13 @@ import { ensureOpenchatClientId, isOpenchatMessageMine } from '@/lib/openchat-id
 import { addSeenJoinClientIds, readSeenJoinClientIds } from '@/lib/openchat-join-toast-seen'
 import { memberAdminLabel, memberMatchesManagerList } from '@/lib/openchat-member-managers'
 import { findChatSearchMatchIds, normalizeChatSearchQuery } from '@/lib/openchat-message-search'
-import { isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
+import { canOpenchatOwnerChangeDisplayName, isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
 import { clearOpenchatToasts, showOpenchatToast } from '@/lib/openchat-toast'
 import {
   collectMentionAliases,
   filterMentionCandidates,
   getActiveMentionQuery,
   insertMentionAt,
-  isMentionToken,
-  splitMentionParts,
   textMentionsAny,
 } from '@/lib/openchat-mention'
 import {
@@ -49,8 +47,12 @@ import {
   setMentionNotificationsEnabled,
 } from '@/lib/openchat-mention-notification'
 import { OpenchatChatSearchBar } from '@/components/openchat-chat-search-bar'
+import { OpenchatMessageLinkPreview } from '@/components/openchat-link-preview-card'
+import { OpenchatMessageText } from '@/components/openchat-message-text'
+import { OpenchatRoomNoticeBanner, OpenchatRoomNoticeEditor } from '@/components/openchat-room-notice'
 import { ComposeEmojiPicker } from '@/components/compose-emoji-picker'
 import { OpenchatPageLoading, openchatPageLoadingCopy } from '@/components/openchat-page-loading'
+import { OpenchatAppearanceAdGuide } from '@/components/openchat-appearance-ad-guide'
 import { OpenchatRoomAppearanceFields } from '@/components/openchat-room-appearance-fields'
 import { OpenchatMemberAvatar } from '@/components/openchat-member-avatar'
 import { OpenchatRoomIcon } from '@/components/openchat-room-icon'
@@ -100,6 +102,7 @@ import {
   subscribeRoomTyping,
   unblockMember,
   updateRoomAppearance,
+  updateRoomNotice,
 } from '@/services/openchat.service'
 import { subscribeRoomMessages } from '@/services/openchat-firestore.service'
 import { useFocusTrap } from '@/hooks/use-focus-trap'
@@ -114,6 +117,8 @@ import { isOpenchatMobileChatViewport } from '@/lib/openchat-mobile-chat'
 import { OpenchatToastHost } from '@/components/openchat-toast-host'
 import { RouteErrorFallback } from '@/components/route-error-fallback'
 import { formatOpenchatPageTitle } from '@/lib/openchat-brand'
+import { OpenchatPlatformChatAdCenter } from '@/components/openchat-platform-chat-ad-center'
+import { resolveChatSurfaceBackground } from '@/lib/openchat-platform-chat-ad'
 import { OPENCHAT_MOCK_DB_STORAGE_KEY } from '@/mocks/install-mock-fetch'
 import type { Route } from './+types/room-detail'
 
@@ -236,21 +241,7 @@ function renderHighlightedPlain(text: string, query: string, keyPrefix: string) 
   return parts
 }
 
-function renderTextWithMentions(text: string, searchHighlight = '') {
-  const highlight = searchHighlight.trim()
-  return splitMentionParts(text).map((p, i) => {
-    if (isMentionToken(p)) {
-      return (
-        <span key={i} className='font-semibold text-[#4a6bcc] dark:text-[#BFD0FF]'>
-          {highlight ? renderHighlightedPlain(p, highlight, `m-${i}`) : p}
-        </span>
-      )
-    }
-    return renderHighlightedPlain(p, highlight, String(i))
-  })
-}
-
-type ModeratorPanelTab = 'invite' | 'requests' | 'members'
+type ModeratorPanelTab = 'notice' | 'invite' | 'requests' | 'members'
 
 function policyChipFor(policy: OpenChatRoom['policy']) {
   switch (policy) {
@@ -302,6 +293,7 @@ export default function RoomDetailPage() {
   const isOwner = me.moderation?.isOwner ?? false
   const isManager = me.moderation?.isManager ?? false
   const isModerator = isOwner || isManager
+  const ownerDisplayNameLocked = isOwner && !canOpenchatOwnerChangeDisplayName(room)
   const [inviteCode, setInviteCode] = useState('')
   const [joinError, setJoinError] = useState<string | null>(null)
   const [pendingNicknames, setPendingNicknames] = useState<string[]>([])
@@ -322,6 +314,9 @@ export default function RoomDetailPage() {
   const keyboardWasOpenOnSendRef = useRef(false)
   /** 전송 직후 useLayoutEffect에서 스크롤 처리 시, 다음 lastMsgId effect의 "새 메시지" 배지 1회 생략 */
   const suppressNextNewMsgBadgeRef = useRef(false)
+  const chatScrollHeightRef = useRef(0)
+  const prevNewMsgCountRef = useRef(0)
+  const [newMsgBadgePop, setNewMsgBadgePop] = useState(false)
   const knownMemberClientIdsRef = useRef<Set<string> | null>(null)
   const toastedJoinClientIdsRef = useRef<Set<string>>(new Set())
   const joinPresenceSyncedRef = useRef(false)
@@ -355,11 +350,14 @@ export default function RoomDetailPage() {
   const messageAnimPrevIdsRef = useRef<Set<string> | null>(null)
   const [messageSlideInIds, setMessageSlideInIds] = useState<Set<string>>(() => new Set())
 
-  const [moderatorPanelTab, setModeratorPanelTab] = useState<ModeratorPanelTab>('members')
+  const [moderatorPanelTab, setModeratorPanelTab] = useState<ModeratorPanelTab>('notice')
   const [moderatorPanelOpen, setModeratorPanelOpen] = useState(false)
   const [appearancePanelOpen, setAppearancePanelOpen] = useState(false)
+  const [noticeDraft, setNoticeDraft] = useState(() => loaderRoom.notice?.text ?? '')
+  const [noticeSaving, setNoticeSaving] = useState(false)
   const [appearanceIconDraft, setAppearanceIconDraft] = useState<string | null>(null)
   const [appearanceBgDraft, setAppearanceBgDraft] = useState<string | null>(null)
+  const [appearanceBgAdDraft, setAppearanceBgAdDraft] = useState(false)
   const [appearanceSaving, setAppearanceSaving] = useState(false)
   const [appearanceError, setAppearanceError] = useState<string | null>(null)
   const chatSearchInputRef = useRef<HTMLInputElement>(null)
@@ -369,7 +367,7 @@ export default function RoomDetailPage() {
 
   const moderatorTabs = useMemo(() => {
     if (!isModerator) return [] as { id: ModeratorPanelTab; label: string; badge?: number }[]
-    const tabs: { id: ModeratorPanelTab; label: string; badge?: number }[] = []
+    const tabs: { id: ModeratorPanelTab; label: string; badge?: number }[] = [{ id: 'notice', label: '공지' }]
     if (room.policy === 'invite' && inviteMeta) tabs.push({ id: 'invite', label: '초대 코드' })
     if (room.policy === 'gated_open') tabs.push({ id: 'requests', label: '가입', badge: pendingNicknames.length })
     if (memberDirectory) {
@@ -396,6 +394,10 @@ export default function RoomDetailPage() {
   }, [loaderRoom])
 
   useEffect(() => {
+    setNoticeDraft(room.notice?.text ?? '')
+  }, [room.id, room.notice?.text])
+
+  useEffect(() => {
     return subscribeRoom(room.id, setRoom)
   }, [room.id])
 
@@ -404,12 +406,17 @@ export default function RoomDetailPage() {
     setAppearancePanelOpen(false)
   }, [room.id])
 
-  useEffect(() => {
-    if (!appearancePanelOpen) return
+  const syncAppearanceDraftsFromRoom = useCallback(() => {
     setAppearanceIconDraft(room.iconUrl ?? null)
     setAppearanceBgDraft(room.chatBackgroundUrl ?? null)
+    setAppearanceBgAdDraft(Boolean(room.chatBackgroundAd))
     setAppearanceError(null)
-  }, [appearancePanelOpen, room.iconUrl, room.chatBackgroundUrl])
+  }, [room.iconUrl, room.chatBackgroundUrl, room.chatBackgroundAd])
+
+  useEffect(() => {
+    if (!appearancePanelOpen) return
+    syncAppearanceDraftsFromRoom()
+  }, [appearancePanelOpen, syncAppearanceDraftsFromRoom])
 
   useEffect(() => {
     if (!moderatorPanelOpen) return
@@ -421,6 +428,11 @@ export default function RoomDetailPage() {
   }, [moderatorPanelOpen])
 
   const policyChip = policyChipFor(room.policy)
+
+  const chatSurfaceBg = useMemo(
+    () => resolveChatSurfaceBackground(room),
+    [room.id, room.chatBackgroundUrl, room.chatBackgroundAd],
+  )
   useOpenchatKeyboardOffset(true)
 
   useEffect(() => {
@@ -580,6 +592,10 @@ export default function RoomDetailPage() {
   useEffect(() => {
     setDisplayNameDraft(senderName)
   }, [senderName])
+
+  useEffect(() => {
+    if (ownerDisplayNameLocked) setIsNicknameOpen(false)
+  }, [ownerDisplayNameLocked])
 
   useEffect(() => {
     if (initialMe.displayName?.trim()) setMyDisplayName(initialMe.displayName.trim())
@@ -770,6 +786,7 @@ export default function RoomDetailPage() {
   }, [attachments, selectedSticker])
 
   const canSendCompose = Boolean(composeText.trim() || selectedSticker)
+  const isComposeSending = fetcher.state !== 'idle'
 
   useFocusTrap(!!messageMenu, messageActionsMenuRef, {
     onEscape: () => setMessageMenu(null),
@@ -924,9 +941,14 @@ export default function RoomDetailPage() {
 
   const handleSaveAppearance = useCallback(async () => {
     if (!isOwner || appearanceSaving) return
-    const iconChanged = (appearanceIconDraft ?? '') !== (room.iconUrl ?? '')
-    const bgChanged = (appearanceBgDraft ?? '') !== (room.chatBackgroundUrl ?? '')
-    if (!iconChanged && !bgChanged) {
+
+    const iconValue = appearanceIconDraft
+    const bgValue = appearanceBgDraft
+    const iconChanged = (iconValue ?? '') !== (room.iconUrl ?? '')
+    const bgChanged = (bgValue ?? '') !== (room.chatBackgroundUrl ?? '')
+    const bgAdChanged = appearanceBgAdDraft !== Boolean(room.chatBackgroundAd)
+
+    if (!iconChanged && !bgChanged && !bgAdChanged) {
       setAppearancePanelOpen(false)
       return
     }
@@ -935,10 +957,14 @@ export default function RoomDetailPage() {
     try {
       const updated = await updateRoomAppearance(room.id, {
         ownerNickname: senderName,
-        ...(iconChanged ? { iconUrl: appearanceIconDraft ?? '' } : {}),
-        ...(bgChanged ? { chatBackgroundUrl: appearanceBgDraft ?? '' } : {}),
+        ...(iconChanged ? { iconUrl: iconValue ?? '' } : {}),
+        ...(bgChanged ? { chatBackgroundUrl: bgValue ?? '' } : {}),
+        ...(bgAdChanged ? { chatBackgroundAd: appearanceBgAdDraft } : {}),
       })
       setRoom(updated)
+      setAppearanceIconDraft(updated.iconUrl ?? null)
+      setAppearanceBgDraft(updated.chatBackgroundUrl ?? null)
+      setAppearanceBgAdDraft(Boolean(updated.chatBackgroundAd))
       setAppearancePanelOpen(false)
       showOpenchatToast('방 꾸미기를 저장했어요.')
     } catch (e) {
@@ -953,11 +979,49 @@ export default function RoomDetailPage() {
     appearanceSaving,
     appearanceIconDraft,
     appearanceBgDraft,
+    appearanceBgAdDraft,
     room.id,
     room.iconUrl,
     room.chatBackgroundUrl,
+    room.chatBackgroundAd,
     senderName,
   ])
+
+  const handleSaveNotice = useCallback(async () => {
+    if (!isModerator || noticeSaving) return
+    setNoticeSaving(true)
+    setAdminError(null)
+    try {
+      const updated = await updateRoomNotice(room.id, senderName, noticeDraft)
+      setRoom(updated)
+      setNoticeDraft(updated.notice?.text ?? '')
+      showOpenchatToast('방 공지를 저장했어요.')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '공지 저장에 실패했습니다.'
+      setAdminError(msg)
+      showOpenchatToast(msg)
+    } finally {
+      setNoticeSaving(false)
+    }
+  }, [isModerator, noticeSaving, room.id, senderName, noticeDraft])
+
+  const handleClearNotice = useCallback(async () => {
+    if (!isModerator || noticeSaving) return
+    setNoticeSaving(true)
+    setAdminError(null)
+    try {
+      const updated = await updateRoomNotice(room.id, senderName, '')
+      setRoom(updated)
+      setNoticeDraft('')
+      showOpenchatToast('방 공지를 비웠어요.')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '공지 삭제에 실패했습니다.'
+      setAdminError(msg)
+      showOpenchatToast(msg)
+    } finally {
+      setNoticeSaving(false)
+    }
+  }, [isModerator, noticeSaving, room.id, senderName])
 
   const applyMentionPick = useCallback(
     (name: string) => {
@@ -1350,6 +1414,10 @@ export default function RoomDetailPage() {
     setChatSearchOpen(false)
     setChatSearchQuery('')
     setChatSearchMatchIndex(0)
+    chatScrollHeightRef.current = 0
+    setNewMsgCount(0)
+    setIsAtBottom(true)
+    isAtBottomRef.current = true
   }, [room.id])
 
   useEffect(() => {
@@ -1381,7 +1449,7 @@ export default function RoomDetailPage() {
   }, [chatSearchQuery, chatSearchNorm, chatSearchMatchIds, scrollToQuotedMessage])
 
   const submitCompose = useCallback(() => {
-    if (!canPost || !canSendCompose || fetcher.state !== 'idle') return
+    if (!canPost || !canSendCompose || isComposeSending) return
     keyboardWasOpenOnSendRef.current = isOpenchatKeyboardLikelyOpen()
     scrollAfterOwnSendRef.current = true
     formRef.current?.requestSubmit()
@@ -1389,7 +1457,7 @@ export default function RoomDetailPage() {
       composeTextareaRef.current?.focus({ preventScroll: true })
     }
     syncOpenchatKeyboardLayout(composeBarRef.current)
-  }, [canPost, canSendCompose, fetcher.state])
+  }, [canPost, canSendCompose, isComposeSending])
 
   useLayoutEffect(() => {
     const el = composeBarRef.current
@@ -1399,6 +1467,7 @@ export default function RoomDetailPage() {
       const rect = el.getBoundingClientRect()
       document.documentElement.style.setProperty('--openchat-compose-h', `${Math.round(rect.height * 1000) / 1000}px`)
       if (window.matchMedia('(max-width: 767px)').matches) {
+        /* 모바일 compose-top 은 visualViewport 계산만 사용(키보드 애니 중 rect 덮어쓰기 방지) */
         syncOpenchatKeyboardLayout(el)
       } else {
         document.documentElement.style.setProperty('--openchat-compose-top', `${Math.round(rect.top * 1000) / 1000}px`)
@@ -1573,6 +1642,16 @@ export default function RoomDetailPage() {
     }
   }, [canViewChatHistory, sortedMessages.length])
 
+  useEffect(() => {
+    if (newMsgCount > prevNewMsgCountRef.current) {
+      setNewMsgBadgePop(true)
+      const t = window.setTimeout(() => setNewMsgBadgePop(false), 420)
+      prevNewMsgCountRef.current = newMsgCount
+      return () => window.clearTimeout(t)
+    }
+    prevNewMsgCountRef.current = newMsgCount
+  }, [newMsgCount])
+
   useLayoutEffect(() => {
     if (!replyTo) return
     const el = composeTextareaRef.current
@@ -1627,7 +1706,7 @@ export default function RoomDetailPage() {
       }
 
       if (isAtBottomRef.current) {
-        scrollToBottom()
+        scrollToBottom('auto')
       } else {
         setNewMsgCount((c) => c + 1)
       }
@@ -1635,6 +1714,17 @@ export default function RoomDetailPage() {
       suppressNextNewMsgBadgeRef.current = false
     }
   }, [lastMsgId, sortedMessages.length, scrollToBottom])
+
+  useLayoutEffect(() => {
+    const el = chatScrollRef.current
+    if (!el) return
+    const nextHeight = el.scrollHeight
+    const prevHeight = chatScrollHeightRef.current
+    if (prevHeight > 0 && nextHeight !== prevHeight && !isAtBottomRef.current) {
+      el.scrollTop += nextHeight - prevHeight
+    }
+    chatScrollHeightRef.current = nextHeight
+  }, [sortedMessages.length, lastMsgId])
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return
@@ -1673,10 +1763,23 @@ export default function RoomDetailPage() {
         <OpenchatParticipationSidebar currentRoomId={room.id} refreshKey={participationRefreshKey} />
 
         <div className='openchat-room-chat-column relative min-w-0 flex-1 space-y-0'>
+      {ownerDisplayNameLocked ? (
+        <div
+          className='mx-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-50/95'
+          role='status'
+        >
+          <span className='font-medium text-amber-900 dark:text-amber-100'>방장 표시 이름 변경 제한</span>
+          <p className='mt-1 leading-relaxed text-amber-900/90 dark:text-amber-100/85'>
+            이 방은 생성 당시 닉네임(<span className='font-medium'>{room.ownerNickname}</span>)으로만 방장이 연결되어 있어요.
+            표시 이름을 바꾸면 방장·꾸미기·운영 권한이 사라질 수 있습니다. 계정 연동(OAuth)이 도입되기 전까지 변경할 수 없습니다.
+          </p>
+        </div>
+      ) : null}
+
       {showMockStorageNotice ? (
-        <div className='mx-4 break-words rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/95'>
-          <span className='font-medium text-amber-50'>데모(Mock) 저장 방식</span>
-          <span className='text-amber-100/85'>
+        <div className='mx-4 break-words rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-50/95'>
+          <span className='font-medium text-amber-900 dark:text-amber-100'>데모(Mock) 저장 방식</span>
+          <span className='text-amber-900/90 dark:text-amber-100/85'>
             {' '}
             채팅·방 데이터는 이 브라우저의 <code className='rounded bg-slate-200 dark:bg-black/30 px-1 py-0.5 font-mono text-[11px]'>localStorage</code>에만
             들어갑니다. 같은 브라우저의 탭·창은 서로 맞춰 보이고, 크롬과 엣지처럼 <span className='font-medium'>앱이 다른 브라우저</span>나
@@ -1695,10 +1798,10 @@ export default function RoomDetailPage() {
         ref={roomStickyHeadRef}
         className='openchat-room-sticky-head flex flex-col border-b border-[#e5e8ed] dark:border-white/10'
       >
-        <div className='flex min-w-0 items-center gap-3 px-4 py-3'>
+        <div className='flex min-w-0 items-center gap-2.5 px-4 py-2'>
         <button
           type='button'
-          className='inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#949ba4] transition hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100 lg:hidden'
+          className='inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#949ba4] transition hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100 lg:hidden'
           aria-label='참여한 방 목록'
           aria-expanded={participationDrawerOpen}
           aria-controls='openchat-participation-drawer'
@@ -1708,9 +1811,9 @@ export default function RoomDetailPage() {
             <path d='M4 7h16M4 12h16M4 17h16' strokeLinecap='round' />
           </svg>
         </button>
-        <OpenchatRoomIcon roomId={room.id} title={room.title} iconUrl={room.iconUrl} size={40} className='rounded-full' />
+        <OpenchatRoomIcon roomId={room.id} title={room.title} iconUrl={room.iconUrl} size={36} className='rounded-full' />
         <div className='min-w-0 flex-1'>
-          <h1 className='truncate text-base font-semibold leading-snug text-[#191f28] dark:text-white'>{room.title}</h1>
+          <h1 className='truncate text-[0.9375rem] font-semibold leading-tight text-[#191f28] dark:text-white'>{room.title}</h1>
           <p className='truncate text-xs text-[#949ba4] dark:text-zinc-500'>
             방장 · {room.ownerNickname}
             <span className='mx-1'>·</span>
@@ -1728,7 +1831,7 @@ export default function RoomDetailPage() {
             <button
               type='button'
               className={[
-                'inline-flex h-9 items-center gap-1 rounded-full px-2.5 text-xs font-medium transition sm:px-3',
+                'inline-flex h-8 items-center gap-1 rounded-full px-2 text-xs font-medium transition sm:px-2.5',
                 appearancePanelOpen
                   ? 'bg-[#5C87FF]/15 text-[#4a6bcc] dark:text-[#BFD0FF]'
                   : 'text-[#949ba4] hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100',
@@ -1738,7 +1841,10 @@ export default function RoomDetailPage() {
               title={appearancePanelOpen ? '방 꾸미기 닫기' : '방 꾸미기'}
               onClick={() => {
                 setAppearancePanelOpen((open) => {
-                  if (!open) setModeratorPanelOpen(false)
+                  if (!open) {
+                    setModeratorPanelOpen(false)
+                    syncAppearanceDraftsFromRoom()
+                  }
                   return !open
                 })
               }}
@@ -1757,7 +1863,7 @@ export default function RoomDetailPage() {
             <button
               type='button'
               className={[
-                'relative inline-flex h-9 items-center gap-1 rounded-full px-2.5 text-xs font-medium transition sm:px-3',
+                'relative inline-flex h-8 items-center gap-1 rounded-full px-2 text-xs font-medium transition sm:px-2.5',
                 moderatorPanelOpen
                   ? 'bg-[#5C87FF]/15 text-[#4a6bcc] dark:text-[#BFD0FF]'
                   : 'text-[#949ba4] hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100',
@@ -1789,7 +1895,7 @@ export default function RoomDetailPage() {
             <button
               type='button'
               className={[
-                'inline-flex h-9 w-9 items-center justify-center rounded-full transition',
+                'inline-flex h-8 w-8 items-center justify-center rounded-full transition',
                 chatSearchOpen
                   ? 'bg-[#5C87FF]/15 text-[#4a6bcc] dark:text-[#BFD0FF]'
                   : 'text-[#949ba4] hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100',
@@ -1814,7 +1920,7 @@ export default function RoomDetailPage() {
             <button
               type='button'
               className={[
-                'relative inline-flex h-9 w-9 items-center justify-center rounded-full transition',
+                'relative inline-flex h-8 w-8 items-center justify-center rounded-full transition',
                 mentionNotifOn
                   ? 'text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400'
                   : 'text-[#949ba4] hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100',
@@ -1833,7 +1939,7 @@ export default function RoomDetailPage() {
           ) : null}
           <Link
             to='/rooms'
-            className='inline-flex h-9 w-9 items-center justify-center rounded-full text-[#949ba4] transition hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100'
+            className='inline-flex h-8 w-8 items-center justify-center rounded-full text-[#949ba4] transition hover:bg-[#f2f3f5] hover:text-[#191f28] dark:hover:bg-white/10 dark:hover:text-zinc-100'
             aria-label='나가기'
             title='나가기'
             onClick={() => setParticipationDrawerOpen(false)}
@@ -1947,13 +2053,15 @@ export default function RoomDetailPage() {
                 ) : null}
               </div>
             )}
-            {joinError ? <div className='mt-3 text-sm text-rose-300'>{joinError}</div> : null}
+            {joinError ? <div className='mt-3 text-sm text-rose-700 dark:text-rose-300'>{joinError}</div> : null}
           </div>
         </div>
       ) : null}
 
       {adminError ? (
-        <div className='rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200'>{adminError}</div>
+        <div className='rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-900 dark:text-rose-200'>
+          {adminError}
+        </div>
       ) : null}
 
       {moderatorPanelOpen && moderatorTabs.length > 0 ? (
@@ -2004,6 +2112,16 @@ export default function RoomDetailPage() {
           </div>
 
           <div className='openchat-moderator-panel-body openchat-mod-body'>
+            {moderatorPanelTab === 'notice' ? (
+              <OpenchatRoomNoticeEditor
+                draft={noticeDraft}
+                onDraftChange={setNoticeDraft}
+                onSave={() => void handleSaveNotice()}
+                onClear={() => void handleClearNotice()}
+                busy={noticeSaving}
+              />
+            ) : null}
+
             {moderatorPanelTab === 'invite' && room.policy === 'invite' && inviteMeta ? (
               <div>
                 <div className='flex items-start justify-between gap-3'>
@@ -2018,13 +2136,13 @@ export default function RoomDetailPage() {
                   ) : null}
                 </div>
                 <div className='mt-3 flex flex-wrap items-center gap-3'>
-                  <code className='rounded-xl border border-[#5C87FF]/30 bg-[#5C87FF]/10 px-3 py-2 font-mono text-base font-semibold tracking-widest text-[#cdd9ff]'>
+                  <code className='rounded-xl border border-[#5C87FF]/30 bg-[#5C87FF]/10 px-3 py-2 font-mono text-base font-semibold tracking-widest text-[#3d5ab0] dark:text-[#cdd9ff]'>
                     {inviteMeta.code}
                   </code>
                   <div className='text-xs text-slate-600 dark:text-zinc-400'>
                     만료 · {shortDeadline(inviteMeta.expiresAt)}
                     {new Date(inviteMeta.expiresAt).getTime() < Date.now() ? (
-                      <span className='ml-2 text-amber-300'>(만료됨 — 재발급 필요)</span>
+                      <span className='ml-2 text-amber-700 dark:text-amber-300'>(만료됨 — 재발급 필요)</span>
                     ) : null}
                   </div>
                 </div>
@@ -2258,16 +2376,22 @@ export default function RoomDetailPage() {
               </button>
             </div>
             <div className='openchat-moderator-panel-body openchat-mod-body'>
-              <p className='mb-4 text-xs text-slate-600 dark:text-zinc-400'>
+              <p className='mb-3 text-xs leading-relaxed text-slate-600 dark:text-zinc-400'>
                 방 아이콘과 채팅 배경은 방장만 바꿀 수 있어요. 저장하면 참여 중인 멤버 화면에도 반영됩니다.
               </p>
+              <OpenchatAppearanceAdGuide />
               <OpenchatRoomAppearanceFields
                 roomId={room.id}
                 roomTitle={room.title}
                 iconUrl={appearanceIconDraft}
                 chatBackgroundUrl={appearanceBgDraft}
+                chatBackgroundAd={appearanceBgAdDraft}
                 onIconUrlChange={setAppearanceIconDraft}
-                onChatBackgroundUrlChange={setAppearanceBgDraft}
+                onChatBackgroundUrlChange={(url) => {
+                  setAppearanceBgDraft(url)
+                  if (!url) setAppearanceBgAdDraft(false)
+                }}
+                onChatBackgroundAdChange={setAppearanceBgAdDraft}
               />
               {appearanceError ? (
                 <p className='mt-3 text-sm text-rose-500 dark:text-rose-400'>{appearanceError}</p>
@@ -2308,22 +2432,44 @@ export default function RoomDetailPage() {
           </div>
         ) : null}
         <div
-          ref={chatScrollRef}
           className={[
-            'openchat-chat-scroll',
-            room.chatBackgroundUrl ? 'openchat-chat-scroll--has-bg' : '',
+            'openchat-chat-surface flex min-h-0 flex-1 flex-col',
+            chatSurfaceBg.mode === 'owner-cover' ? 'openchat-chat-surface--has-bg' : '',
+            chatSurfaceBg.mode === 'platform-center' ? 'openchat-chat-surface--platform-ad' : '',
           ]
             .filter(Boolean)
             .join(' ')}
           style={
-            room.chatBackgroundUrl
-              ? { backgroundImage: `url(${room.chatBackgroundUrl})` }
+            chatSurfaceBg.mode === 'owner-cover' && chatSurfaceBg.coverImageUrl
+              ? { backgroundImage: `url(${chatSurfaceBg.coverImageUrl})` }
               : undefined
           }
         >
+        {canViewChatHistory && chatSurfaceBg.mode === 'platform-center' && chatSurfaceBg.platformAd ? (
+          <OpenchatPlatformChatAdCenter imageUrl={chatSurfaceBg.platformAd.imageUrl} />
+        ) : null}
+        {canViewChatHistory && room.notice?.text?.trim() ? (
+          <div className='openchat-room-notice-bar shrink-0'>
+            <OpenchatRoomNoticeBanner roomId={room.id} notice={room.notice} />
+          </div>
+        ) : null}
+        {canViewChatHistory && chatSurfaceBg.adKind === 'owner' ? (
+          <span className='openchat-chat-bg-ad-label' aria-label='광고'>
+            광고
+          </span>
+        ) : null}
+        <div
+          ref={chatScrollRef}
+          className={[
+            'openchat-chat-scroll min-h-0 flex-1',
+            chatSurfaceBg.mode === 'owner-cover' ? 'openchat-chat-scroll--has-bg' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
         <ul
           className={[
-            'relative space-y-4 overflow-x-clip px-4 pt-0 sm:px-5',
+            'openchat-chat-list relative space-y-4 px-4 pt-2 sm:px-5',
             selectedSticker && canPost
               ? 'pb-[calc(var(--openchat-compose-h)+5.5rem+var(--openchat-safe-bottom,env(safe-area-inset-bottom,0px)))]'
               : 'pb-[calc(var(--openchat-compose-h)+var(--openchat-compose-gap)+var(--openchat-safe-bottom,env(safe-area-inset-bottom,0px)))]',
@@ -2342,8 +2488,8 @@ export default function RoomDetailPage() {
             {grouped.map((it, idx) => {
               if (it.kind === 'day') {
                 return (
-                  <li key={`day-${idx}`} className='flex items-center justify-center py-3'>
-                    <span className='openchat-system-msg'>{it.day}</span>
+                  <li key={`day-${idx}`} className='openchat-chat-day-sticky' role='separator' aria-label={it.day}>
+                    <span className='openchat-chat-day-sticky-label'>{it.day}</span>
                   </li>
                 )
               }
@@ -2360,9 +2506,9 @@ export default function RoomDetailPage() {
                     ].join(' ')}
                   >
                     <span className='openchat-system-msg'>
-                      {m.text && chatSearchNorm
-                        ? renderTextWithMentions(m.text, chatSearchQuery)
-                        : m.text}
+                      {m.text ? (
+                        <OpenchatMessageText text={m.text} searchHighlight={chatSearchNorm ? chatSearchQuery : ''} />
+                      ) : null}
                     </span>
                   </li>
                 )
@@ -2456,7 +2602,7 @@ export default function RoomDetailPage() {
                                 className={[
                                   'rounded-lg border-l-2 px-2 py-1 text-xs italic',
                                   isMine
-                                    ? 'border-white/35 bg-white/8 text-right text-white/75'
+                                    ? 'border-[#7eb3dc]/70 bg-[#b8daf3]/55 text-right text-[#191f28] dark:border-white/35 dark:bg-white/8 dark:text-white/75'
                                     : 'border-slate-400/60 bg-slate-100/80 text-left dark:bg-black/15 text-slate-600 dark:text-zinc-400',
                                 ].join(' ')}
                               >
@@ -2467,7 +2613,7 @@ export default function RoomDetailPage() {
                                 className={[
                                   'rounded-lg border-l-2 px-2 py-1 text-xs',
                                   isMine
-                                    ? 'border-white/35 bg-white/8 text-right text-white/75'
+                                    ? 'border-[#7eb3dc]/70 bg-[#b8daf3]/55 text-right text-[#191f28] dark:border-white/35 dark:bg-white/8 dark:text-white/75'
                                     : 'border-slate-300 bg-slate-50 text-left dark:border-white/20 dark:bg-black/20 text-slate-600 dark:text-zinc-400',
                                 ].join(' ')}
                               >
@@ -2492,7 +2638,8 @@ export default function RoomDetailPage() {
                                 isMine ? 'text-right' : 'text-left',
                               ].join(' ')}
                             >
-                              {renderTextWithMentions(m.text, chatSearchNorm ? chatSearchQuery : '')}
+                              <OpenchatMessageText text={m.text} searchHighlight={chatSearchNorm ? chatSearchQuery : ''} />
+                              <OpenchatMessageLinkPreview text={m.text} isMine={isMine} />
                             </div>
                           ) : null}
 
@@ -2619,6 +2766,7 @@ export default function RoomDetailPage() {
           <li aria-hidden className='pointer-events-none h-0 shrink-0 list-none' />
         </ul>
         </div>
+        </div>
 
       </div>
 
@@ -2655,46 +2803,64 @@ export default function RoomDetailPage() {
         </div>
       ) : null}
 
-      {newMsgCount > 0 && !isAtBottom ? (
+      {!isAtBottom ? (
         <button
           type='button'
-          className='openchat-banner-above-compose z-40 max-w-[calc(100%-2rem)] rounded-full bg-[#5C87FF]/90 px-4 py-2 text-xs font-medium text-white shadow-[0_10px_30px_-10px_rgba(92,135,255,0.7)] backdrop-blur-md transition hover:bg-[#5C87FF]'
-          onClick={() => {
-            scrollToBottom()
-            setNewMsgCount(0)
-          }}
+          className={[
+            'openchat-banner-above-compose openchat-new-msg-banner z-40',
+            newMsgBadgePop ? 'openchat-new-msg-banner--pop' : '',
+          ].join(' ')}
+          onClick={() => scrollToBottom('smooth')}
+          aria-label={newMsgCount > 0 ? `새 메시지 ${newMsgCount}개, 맨 아래로 이동` : '맨 아래로 이동'}
         >
-          새 메시지 {newMsgCount}개 · 아래로
+          {newMsgCount > 0 ? (
+            <>
+              <span className='openchat-new-msg-banner-badge' aria-hidden>
+                {newMsgCount > 99 ? '99+' : newMsgCount}
+              </span>
+              <span>맨 아래로</span>
+            </>
+          ) : (
+            '맨 아래로'
+          )}
         </button>
       ) : null}
 
-      <button
-        type='button'
-        className={[
-          'openchat-fab-above-compose focus-ring fixed right-[max(1.25rem,env(safe-area-inset-right))] z-[95] flex h-10 min-w-10 flex-col items-center justify-center gap-0 rounded-lg border border-slate-200/90 bg-white/95 px-1.5 py-1.5 text-[9px] font-bold leading-none tracking-wide text-slate-800 shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition-[opacity,transform,visibility] duration-200 hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-zinc-800/95',
-          showScrollTopFab
-            ? 'pointer-events-auto visible translate-y-0 opacity-100'
-            : 'pointer-events-none invisible translate-y-2 opacity-0',
-        ].join(' ')}
-        onClick={() => scrollToTop('smooth')}
-        aria-label='맨 위로'
-        aria-hidden={!showScrollTopFab}
-        tabIndex={showScrollTopFab ? 0 : -1}
-      >
-        <svg viewBox='0 0 24 24' className='h-3.5 w-3.5 shrink-0' fill='none' stroke='currentColor' strokeWidth='2.2' aria-hidden>
-          <path d='M12 19V5M5 12l7-7 7 7' strokeLinecap='round' strokeLinejoin='round' />
-        </svg>
-        <span className='mt-0.5 select-none'>TOP</span>
-      </button>
+      <div className='openchat-fab-stack-above-compose' aria-label='채팅 바로가기'>
+        {chatSurfaceBg.mode === 'platform-center' && chatSurfaceBg.platformAd?.landingUrl ? (
+          <a
+            href={chatSurfaceBg.platformAd.landingUrl}
+            target='_blank'
+            rel='noopener noreferrer'
+            className='openchat-fab-stack-btn openchat-fab-stack-btn--ad focus-ring flex h-10 w-10 min-w-10 shrink-0 items-center justify-center rounded-lg border border-[#5C87FF]/35 bg-white/95 px-1.5 py-1.5 text-[9px] font-bold leading-none tracking-wide text-[#4a6bcc] shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition-colors hover:bg-[#5C87FF]/10 dark:border-[#5C87FF]/40 dark:bg-zinc-900/95 dark:text-[#BFD0FF] dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-[#5C87FF]/15'
+            aria-label='AD 바로가기'
+          >
+            <span className='select-none'>AD</span>
+          </a>
+        ) : null}
+        {showScrollTopFab ? (
+          <button
+            type='button'
+            className='openchat-fab-stack-btn openchat-fab-stack-btn--top focus-ring flex h-10 w-10 min-w-10 shrink-0 flex-col items-center justify-center gap-0 rounded-lg border border-slate-200/90 bg-white/95 px-1.5 py-1.5 text-[9px] font-bold leading-none tracking-wide text-slate-800 shadow-[0_6px_24px_-8px_rgba(15,23,42,0.35)] backdrop-blur-md transition-[opacity,transform,visibility] duration-200 hover:bg-slate-50 dark:border-white/12 dark:bg-zinc-900/95 dark:text-zinc-100 dark:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.55)] dark:hover:bg-zinc-800/95'
+            onClick={() => scrollToTop('smooth')}
+            aria-label='맨 위로'
+          >
+            <svg viewBox='0 0 24 24' className='h-3.5 w-3.5 shrink-0' fill='none' stroke='currentColor' strokeWidth='2.2' aria-hidden>
+              <path d='M12 19V5M5 12l7-7 7 7' strokeLinecap='round' strokeLinejoin='round' />
+            </svg>
+            <span className='mt-0.5 select-none'>TOP</span>
+          </button>
+        ) : null}
+      </div>
 
       <div
         ref={composeBarRef}
         className='openchat-compose-dock fixed inset-x-0 z-30 border-t border-[#e5e8ed] bg-white dark:border-white/10 dark:bg-[#161a25]'
       >
-        <div className='openchat-compose-dock-inner mx-auto w-full max-w-[1024px] px-4 pt-2 md:pt-3'>
+        <div className='openchat-compose-dock-inner mx-auto w-full max-w-[1024px] px-4 pt-1 md:pt-2'>
           <fetcher.Form
             ref={formRef}
-            className='flex flex-col gap-2 pb-2 md:gap-2.5 md:pb-3'
+            className='flex flex-col gap-1 pb-1 md:gap-2 md:pb-2'
             method='post'
             onSubmit={() => {
               keyboardWasOpenOnSendRef.current = isOpenchatKeyboardLikelyOpen()
@@ -2822,7 +2988,12 @@ export default function RoomDetailPage() {
                   </p>
                 )
               ) : null}
-              <div className='openchat-compose-box'>
+              <div
+                className={[
+                  'openchat-compose-box',
+                  isComposeSending ? 'openchat-compose-box--sending' : '',
+                ].join(' ')}
+              >
                 <textarea
                   ref={composeTextareaRef}
                   name='text'
@@ -2887,7 +3058,9 @@ export default function RoomDetailPage() {
                         ? `${labelForMessage(replyTo)}님에게 답장…`
                         : '메시지를 입력하세요.'
                   }
-                  disabled={!canPost}
+                  disabled={!canPost || isComposeSending}
+                  readOnly={isComposeSending}
+                  aria-busy={isComposeSending}
                   className='openchat-compose-input'
                   autoComplete='off'
                   enterKeyHint='send'
@@ -2908,9 +3081,15 @@ export default function RoomDetailPage() {
                         <circle cx='8.5' cy='10.5' r='1.5' />
                         <path d='M21 16l-5.5-5.5a2 2 0 0 0-2.8 0L3 20' strokeLinecap='round' strokeLinejoin='round' />
                       </svg>
-                      <input type='file' className='hidden' multiple disabled={!canPost} onChange={(e) => void handleFiles(e.target.files)} />
+                      <input
+                        type='file'
+                        className='hidden'
+                        multiple
+                        disabled={!canPost || isComposeSending}
+                        onChange={(e) => void handleFiles(e.target.files)}
+                      />
                     </label>
-                    <ComposeEmojiPicker disabled={!canPost} onSelect={selectSticker} />
+                    <ComposeEmojiPicker disabled={!canPost || isComposeSending} onSelect={selectSticker} />
                   </div>
 
                   <div
@@ -2919,7 +3098,7 @@ export default function RoomDetailPage() {
                       isNicknameOpen ? 'openchat-compose-nickname-slot--expanded' : 'openchat-compose-nickname-slot--collapsed',
                     ].join(' ')}
                   >
-                    {isNicknameOpen ? (
+                    {isNicknameOpen && !ownerDisplayNameLocked ? (
                       <div className='flex h-full min-w-0 items-center gap-1 rounded-lg border border-[#e5e8ed] bg-[#f8f9fb] pl-1.5 pr-2 dark:border-white/10 dark:bg-white/[0.04]'>
                         <OpenchatMemberAvatar name={senderName} size={20} isOwner={isOwner} />
                         <input
@@ -2964,10 +3143,21 @@ export default function RoomDetailPage() {
                     ) : (
                       <button
                         type='button'
-                        title={!canPost ? '입장 후 설정할 수 있어요' : '표시 이름 변경'}
-                        className='openchat-compose-nickname-trigger'
-                        aria-expanded={isNicknameOpen}
+                        disabled={ownerDisplayNameLocked}
+                        title={
+                          ownerDisplayNameLocked
+                            ? '방장은 이 방에서 표시 이름을 바꿀 수 없습니다 (OAuth 연동 전)'
+                            : !canPost
+                              ? '입장 후 설정할 수 있어요'
+                              : '표시 이름 변경'
+                        }
+                        className={[
+                          'openchat-compose-nickname-trigger',
+                          ownerDisplayNameLocked ? 'openchat-compose-nickname-trigger--locked' : '',
+                        ].join(' ')}
+                        aria-expanded={isNicknameOpen && !ownerDisplayNameLocked}
                         onClick={() => {
+                          if (ownerDisplayNameLocked) return
                           setDisplayNameDraft(senderName)
                           setIsNicknameOpen(true)
                         }}
@@ -2980,13 +3170,24 @@ export default function RoomDetailPage() {
                 </div>
                 <button
                   type='button'
-                  disabled={fetcher.state !== 'idle' || !canPost || !canSendCompose}
-                  className='openchat-compose-send'
-                  aria-label='보내기'
+                  disabled={isComposeSending || !canPost || !canSendCompose}
+                  className={[
+                    'openchat-compose-send',
+                    isComposeSending ? 'openchat-compose-send--sending' : '',
+                  ].join(' ')}
+                  aria-label={isComposeSending ? '전송 중' : '보내기'}
+                  aria-busy={isComposeSending}
                   onPointerDown={(e) => e.preventDefault()}
                   onClick={submitCompose}
                 >
-                  {fetcher.state === 'idle' ? '보내기' : '전송중…'}
+                  {isComposeSending ? (
+                    <>
+                      <span className='openchat-compose-send-spinner' aria-hidden />
+                      <span className='sr-only'>전송 중</span>
+                    </>
+                  ) : (
+                    '보내기'
+                  )}
                 </button>
               </div>
               </div>

@@ -23,9 +23,12 @@ import type {
   SetRoomDisplayNameResponse,
   UpdateRoomAppearanceRequest,
   UpdateRoomAppearanceResponse,
+  UpdateRoomNoticeRequest,
+  UpdateRoomNoticeResponse,
+  OpenChatRoomNotice,
 } from '@/features/openchat/openchat.types'
 import { toggleReactionMap } from '@/lib/openchat-message-reactions'
-import { isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
+import { isLegacyOpenchatRoomOwnerBinding, isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
 
 export type OpenChatApiCoreOptions = {
   loadInitialDb: () => OpenChatDb
@@ -172,6 +175,9 @@ function matchPath(pathname: string) {
 
   const appearanceMatch = pathname.match(/^\/api\/openchat\/rooms\/([^/]+)\/appearance$/)
   if (appearanceMatch) return { kind: 'roomAppearance' as const, roomId: decodeURIComponent(appearanceMatch[1]!) }
+
+  const noticeMatch = pathname.match(/^\/api\/openchat\/rooms\/([^/]+)\/notice$/)
+  if (noticeMatch) return { kind: 'roomNotice' as const, roomId: decodeURIComponent(noticeMatch[1]!) }
 
   return { kind: 'unknown' as const }
 }
@@ -420,6 +426,7 @@ async function handleCreateRoom(method: string, request: Request) {
       ? body.chatBackgroundUrl.trim()
       : undefined
   if (chatBackgroundUrl && chatBackgroundUrl.length > 500_000) return badRequest('background image is too large')
+  const chatBackgroundAd = body?.chatBackgroundAd === true
 
   const room: OpenChatRoom = {
     id,
@@ -430,6 +437,7 @@ async function handleCreateRoom(method: string, request: Request) {
     ...(ownerClientId ? { ownerClientId } : {}),
     ...(iconUrl ? { iconUrl } : {}),
     ...(chatBackgroundUrl ? { chatBackgroundUrl } : {}),
+    ...(chatBackgroundAd ? { chatBackgroundAd: true } : {}),
     createdAt: nowIso(),
   }
 
@@ -502,17 +510,69 @@ async function handleRoomAppearance(method: string, roomId: string, request: Req
   }
   if (body?.chatBackgroundUrl !== undefined) {
     const v = body.chatBackgroundUrl.trim()
-    if (!v) delete next.chatBackgroundUrl
-    else {
+    if (!v) {
+      delete next.chatBackgroundUrl
+      delete next.chatBackgroundAd
+    } else {
       if (v.length > 500_000) return badRequest('background image is too large')
       next.chatBackgroundUrl = v
     }
+  }
+  if (body?.chatBackgroundAd !== undefined) {
+    if (body.chatBackgroundAd) next.chatBackgroundAd = true
+    else delete next.chatBackgroundAd
   }
 
   db.rooms[idx] = next
   persist()
 
   const payload: UpdateRoomAppearanceResponse = { room: next }
+  return json(payload)
+}
+
+const NOTICE_MAX_LEN = 4_000
+
+async function handleRoomNotice(method: string, roomId: string, request: Request) {
+  if (method !== 'POST') return methodNotAllowed()
+
+  const room = db.rooms.find((r) => r.id === roomId)
+  if (!room) return notFound('Room not found')
+
+  let body: UpdateRoomNoticeRequest | undefined
+  try {
+    body = (await request.json()) as UpdateRoomNoticeRequest
+  } catch {
+    return badRequest('Invalid JSON body')
+  }
+
+  const actorNickname = (body?.actorNickname ?? '').trim()
+  if (!actorNickname) return badRequest('actorNickname is required')
+  const clientId = readClientIdFromRequest(request)
+  if (!isModerator(room, roomId, actorNickname, clientId)) {
+    return forbidden('only moderators can update room notice')
+  }
+
+  const trimmed = (body?.text ?? '').trim()
+  const idx = db.rooms.findIndex((r) => r.id === roomId)
+  const cur = db.rooms[idx]!
+  const next: OpenChatRoom = { ...cur }
+
+  if (!trimmed) {
+    delete next.notice
+  } else {
+    if (trimmed.length > NOTICE_MAX_LEN) return badRequest('notice is too long')
+    const notice: OpenChatRoomNotice = {
+      text: trimmed,
+      updatedAt: nowIso(),
+      updatedBy: actorNickname,
+    }
+    next.notice = notice
+  }
+
+  db.rooms[idx] = next
+  persist()
+
+  const payload: UpdateRoomNoticeResponse = { room: next }
   return json(payload)
 }
 
@@ -1263,6 +1323,12 @@ async function handleSetDisplayName(method: string, roomId: string, request: Req
   const st = getMembershipStatus(roomId, memberKey)
   if (room.policy !== 'open_link' && st !== 'member') return forbidden('Not a member')
 
+  if (isLegacyOpenchatRoomOwnerBinding(room) && isOpenchatRoomOwner(room, memberKey, clientId)) {
+    return badRequest(
+      '방장 표시 이름은 바꿀 수 없습니다. 이 방은 생성 시 닉네임으로만 방장이 연결되어 있습니다. 계정 연동(OAuth) 전까지 변경할 수 없어요.',
+    )
+  }
+
   const previousDisplayName = resolveDisplayName(roomId, clientId, memberKey)
   if (previousDisplayName === displayName) {
     const payload: SetRoomDisplayNameResponse = { roomId, displayName, previousDisplayName }
@@ -1345,6 +1411,8 @@ async function handleSetDisplayName(method: string, roomId: string, request: Req
         return handleSetDisplayName(method, match.roomId, req)
       case 'roomAppearance':
         return handleRoomAppearance(method, match.roomId, req)
+      case 'roomNotice':
+        return handleRoomNotice(method, match.roomId, req)
       default:
         return notFound('Unknown API endpoint')
     }

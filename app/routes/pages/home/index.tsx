@@ -42,8 +42,11 @@ const IMPLEMENTED_FEATURES: FeatureGroup[] = [
     title: '방·목록',
     summary: '만들기부터 찾기까지',
     items: [
-      '방 만들기 — 제목, 정책(초대·공개·신청/승인), 태그, 방 아이콘·채팅 배경',
-      '방장 전용 「꾸미기」 — 아이콘·배경 나중에 변경',
+      '방 만들기 — 제목, 공개 범위(초대·공개·신청/승인), 태그, 방 아이콘·채팅 배경',
+      '방 공지(고정) — 입장 직후 규칙·링크·일정 안내',
+      'Firestore 실시간 동기화 — 메시지·멤버·읽음 상태',
+      '방장 전용 「꾸미기」 — 아이콘·배경·홍보·광고 배경(체크 시에만 표시)',
+      '운영 채팅 광고 — 광고 배경 켠 방·배경 미등록 시 중앙 배너(방·일자별)',
       '목록 검색·정책 필터, 태그로 주제 구분',
       '채팅 중 다른 방으로 이동(참여 방 사이드바·모바일 드로어)',
     ],
@@ -52,7 +55,7 @@ const IMPLEMENTED_FEATURES: FeatureGroup[] = [
     title: '대화',
     summary: '카카오톡 스타일 채팅 UI',
     items: [
-      '텍스트, 이미지·파일, 스티커, 답장, @멘션',
+      '텍스트, 이미지·파일, 스티커, 답장, @멘션, URL 링크·OG 미리보기',
       '메시지 이모지 반응, 입력 중 표시',
       '채팅방 안 대화 검색(하이라이트·이전/다음)',
     ],
@@ -71,7 +74,7 @@ const IMPLEMENTED_FEATURES: FeatureGroup[] = [
     summary: '방장·매니저·멤버',
     items: [
       '가입 신청 승인/거절, 차단, 매니저 지정, 강퇴, 초대 코드(초대형)',
-      '방마다 표시 이름 변경(닉네임과 별도)',
+      '방마다 표시 이름 변경(방장·레거시 방은 OAuth 전 제한)',
       '본인 메시지 1분 이내 전송 취소, 라이트/다크 테마',
     ],
   },
@@ -110,12 +113,18 @@ export default function HomePage() {
           />
         </div>
 
-        <span className='chip chip-brand'>v0.1 · 클라이언트 전용 MVP · 연동 확인</span>
+        <span className='chip chip-brand'>Firestore 실시간 · 방 공개 범위</span>
         <h1 className='mt-5 text-3xl font-semibold leading-[1.15] tracking-tight md:text-5xl'>
           업종별/주제별 <span className='text-brand-gradient'>오픈채팅</span>
         </h1>
-        <p className='mt-5 max-w-2xl text-[15px] leading-7 text-slate-600/90 dark:text-zinc-300/90'>
-          팀룸(초대형) · 공개형(완전 오픈) · 신청/승인형(제한 공개) — 세 가지 방 정책을 하나의 모델로 통일했습니다.
+        <p className='mt-5 max-w-xl text-[15px] leading-7 text-slate-600/90 dark:text-zinc-300/90'>
+          방·메시지·참여 정보는 Firebase Firestore에 저장되며, 같은 방에 있는 브라우저와 기기에서 실시간으로 맞춰집니다.
+          <span className='mt-2 block'>
+            <strong className='font-medium text-slate-800 dark:text-zinc-200'>초대형</strong>은 초대 코드로만 입장하고,{' '}
+            <strong className='font-medium text-slate-800 dark:text-zinc-200'>공개형</strong>은 누구나 목록에서 찾아 대화할 수 있으며,{' '}
+            <strong className='font-medium text-slate-800 dark:text-zinc-200'>신청/승인형</strong>은 방장·매니저 승인 후 멤버만 대화 내용을 볼 수
+            있습니다.
+          </span>
         </p>
 
         <div className='mt-8 flex flex-wrap items-center gap-3'>
@@ -140,7 +149,7 @@ export default function HomePage() {
             </svg>
           }
           title='방 공개 범위'
-          desc='초대형 · 공개형 · 신청-승인형. 같은 방 정책 모델 위에서 자유롭게 전환됩니다.'
+          desc='초대형(코드 초대) · 공개형(누구나 참여·열람) · 신청/승인형(승인 멤버만). 정책에 따라 목록·대화·읽음 표시 범위가 달라집니다.'
         />
         <FeatureCard
           delay={80}

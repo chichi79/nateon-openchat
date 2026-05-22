@@ -1,5 +1,20 @@
 export type RoomPolicy = 'invite' | 'open_link' | 'gated_open'
 
+/** 방 공지·고정 안내 — 입장 직후 규칙·링크·일정 */
+export type OpenChatRoomNotice = {
+  text: string
+  updatedAt: string
+  updatedBy?: string
+}
+
+export type OpenChatLinkPreview = {
+  url: string
+  title?: string
+  description?: string
+  imageUrl?: string
+  siteName?: string
+}
+
 export type OpenChatRoom = {
   id: string
   title: string
@@ -12,6 +27,10 @@ export type OpenChatRoom = {
   iconUrl?: string
   /** 채팅 메시지 목록 배경(data URL 등) */
   chatBackgroundUrl?: string
+  /** 배경을 홍보·광고로 표시(방장만 설정) */
+  chatBackgroundAd?: boolean
+  /** 방 공지(고정) — 멤버 입장 시 채팅 상단에 표시 */
+  notice?: OpenChatRoomNotice
   createdAt: string
 }
 
@@ -70,6 +89,7 @@ export type CreateRoomRequest = {
   ownerClientId?: string
   iconUrl?: string
   chatBackgroundUrl?: string
+  chatBackgroundAd?: boolean
 }
 
 export type CreateRoomResponse = {
@@ -81,10 +101,25 @@ export type UpdateRoomAppearanceRequest = {
   ownerNickname: string
   iconUrl?: string
   chatBackgroundUrl?: string
+  /** true: 광고 배경 표시. false: 일반 배경. 배경 제거 시 함께 해제 */
+  chatBackgroundAd?: boolean
 }
 
 export type UpdateRoomAppearanceResponse = {
   room: OpenChatRoom
+}
+
+export type UpdateRoomNoticeRequest = {
+  actorNickname: string
+  text: string
+}
+
+export type UpdateRoomNoticeResponse = {
+  room: OpenChatRoom
+}
+
+export type FetchLinkPreviewResponse = {
+  preview: OpenChatLinkPreview | null
 }
 
 export type MembershipStatus = 'none' | 'pending' | 'member' | 'rejected'

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Form, Link, useLoaderData, useRevalidator, useSearchParams } from 'react-router'
 
+import { OpenchatAdSlot } from '@/components/openchat-ad-slot'
 import { OpenchatNicknameIntroOverlay } from '@/components/openchat-nickname-intro-overlay'
 import { OpenchatRoomIcon } from '@/components/openchat-room-icon'
 import { useOpenchatFirestore } from '@/config/openchat-backend'
@@ -126,10 +127,10 @@ export default function RoomsPage() {
       ) : null}
     <div className='min-w-0 max-w-full space-y-6 overflow-x-clip'>
       {loadError ? (
-        <div className='rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-100'>
-          <div className='font-medium'>목록을 불러오지 못했어요</div>
-          <p className='mt-1 text-amber-100/85'>{loadError}</p>
-          <p className='mt-2 text-xs text-amber-200/70'>
+        <div className='rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-50/95'>
+          <div className='font-medium text-amber-900 dark:text-amber-100'>목록을 불러오지 못했어요</div>
+          <p className='mt-1 text-amber-900/90 dark:text-amber-100/85'>{loadError}</p>
+          <p className='mt-2 text-xs text-amber-800/80 dark:text-amber-200/70'>
             Firestore를 쓰는 경우: 콘솔에서 규칙 배포·인덱스 링크, `VITE_FIREBASE_*` 값을 확인하세요. Mock만 쓰는 경우: `.env`에서
             `VITE_ENABLE_MOCK_API` 를 켜거나 Firebase 설정을 비워 두세요.
           </p>
@@ -187,6 +188,8 @@ export default function RoomsPage() {
         </div>
       </Form>
 
+      <OpenchatAdSlot placement='rooms-list' />
+
       {rooms.length === 0 ? (
         <div className='card p-10 text-center'>
           <div className='mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#5C87FF]/10 ring-1 ring-inset ring-[#5C87FF]/25'>
@@ -232,7 +235,7 @@ export default function RoomsPage() {
 
                       <div className='mt-4 flex items-center justify-between text-xs text-slate-500 dark:text-zinc-500'>
                         <span>방장 · {room.ownerNickname}</span>
-                        <span className='inline-flex items-center gap-1 text-[#9DB6FF] transition group-hover:translate-x-0.5'>
+                        <span className='inline-flex items-center gap-1 text-[#4a6bcc] transition group-hover:translate-x-0.5 dark:text-[#9DB6FF]'>
                           입장
                           <svg viewBox='0 0 24 24' className='h-3.5 w-3.5' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
                             <path d='M5 12h14M13 5l7 7-7 7' />

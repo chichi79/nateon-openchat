@@ -22,7 +22,7 @@ import {
   type DocumentSnapshot,
 } from 'firebase/firestore'
 
-import { isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
+import { isLegacyOpenchatRoomOwnerBinding, isOpenchatRoomOwner } from '@/lib/openchat-room-owner'
 import { parseMessageReactions, toggleReactionMap } from '@/lib/openchat-message-reactions'
 import type {
   CreateRoomRequest,
@@ -33,6 +33,7 @@ import type {
   MyClientParticipationsResponse,
   OpenChatMessage,
   OpenChatRoom,
+  OpenChatRoomNotice,
   UpdateRoomAppearanceRequest,
   PostMessageRequest,
   RoomDisplayNamesResponse,
@@ -132,10 +133,25 @@ function optionalImageUrl(raw: unknown): string | undefined {
   return typeof raw === 'string' && raw.trim() ? raw.trim() : undefined
 }
 
+function parseRoomNotice(raw: unknown): OpenChatRoomNotice | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const o = raw as Record<string, unknown>
+  const text = String(o.text ?? '').trim()
+  if (!text) return undefined
+  const updatedAt = String(o.updatedAt ?? '').trim() || new Date().toISOString()
+  const updatedBy = String(o.updatedBy ?? '').trim()
+  return {
+    text,
+    updatedAt,
+    ...(updatedBy ? { updatedBy } : {}),
+  }
+}
+
 function roomFromSnap(id: string, data: Record<string, unknown>): OpenChatRoom {
   const ownerClientIdRaw = data.ownerClientId
   const iconUrl = optionalImageUrl(data.iconUrl)
   const chatBackgroundUrl = optionalImageUrl(data.chatBackgroundUrl)
+  const chatBackgroundAd = data.chatBackgroundAd === true
   return {
     id,
     title: String(data.title ?? ''),
@@ -146,6 +162,8 @@ function roomFromSnap(id: string, data: Record<string, unknown>): OpenChatRoom {
       typeof ownerClientIdRaw === 'string' && ownerClientIdRaw.trim() ? ownerClientIdRaw.trim() : undefined,
     ...(iconUrl ? { iconUrl } : {}),
     ...(chatBackgroundUrl ? { chatBackgroundUrl } : {}),
+    ...(chatBackgroundAd ? { chatBackgroundAd: true } : {}),
+    ...(parseRoomNotice(data.notice) ? { notice: parseRoomNotice(data.notice) } : {}),
     createdAt: tsToIso(data.createdAt as Timestamp | undefined),
   }
 }
@@ -224,6 +242,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
   const ownerClientId = body.ownerClientId?.trim() || undefined
   const iconUrl = body.iconUrl?.trim() || undefined
   const chatBackgroundUrl = body.chatBackgroundUrl?.trim() || undefined
+  const chatBackgroundAd = body.chatBackgroundAd === true
   const room: OpenChatRoom = {
     id,
     title,
@@ -233,6 +252,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
     ownerClientId,
     ...(iconUrl ? { iconUrl } : {}),
     ...(chatBackgroundUrl ? { chatBackgroundUrl } : {}),
+    ...(chatBackgroundAd ? { chatBackgroundAd: true } : {}),
     createdAt: new Date().toISOString(),
   }
   const batch = writeBatch(firestore())
@@ -244,6 +264,7 @@ export async function createRoom(body: CreateRoomRequest): Promise<OpenChatRoom>
     ...(ownerClientId ? { ownerClientId } : {}),
     ...(iconUrl ? { iconUrl } : {}),
     ...(chatBackgroundUrl ? { chatBackgroundUrl } : {}),
+    ...(chatBackgroundAd ? { chatBackgroundAd: true } : {}),
     createdAt: now,
     managers: [],
     blocked: [],
@@ -314,16 +335,54 @@ export async function updateRoomAppearance(
   }
   if (body.chatBackgroundUrl !== undefined) {
     const v = body.chatBackgroundUrl.trim()
-    if (!v) patch.chatBackgroundUrl = deleteField()
-    else {
+    if (!v) {
+      patch.chatBackgroundUrl = deleteField()
+      patch.chatBackgroundAd = deleteField()
+    } else {
       if (v.length > APPEARANCE_MAX_BG_LEN) throw new Error('background image is too large')
       patch.chatBackgroundUrl = v
     }
+  }
+  if (body.chatBackgroundAd !== undefined) {
+    if (body.chatBackgroundAd) patch.chatBackgroundAd = true
+    else patch.chatBackgroundAd = deleteField()
   }
 
   if (Object.keys(patch).length === 0) return room
 
   await updateDoc(roomRef(roomId), patch)
+  return getRoom(roomId)
+}
+
+const NOTICE_MAX_LEN = 4_000
+
+export async function updateRoomNotice(
+  roomId: string,
+  actorNickname: string,
+  text: string,
+  clientId?: string | null,
+): Promise<OpenChatRoom> {
+  const room = await getRoom(roomId)
+  const actor = actorNickname.trim()
+  if (!actor) throw new Error('actorNickname is required')
+  if (!(await isModeratorFull(room, roomId, actor, clientId))) {
+    throw new Error('only moderators can update room notice')
+  }
+
+  const trimmed = text.trim()
+  if (!trimmed) {
+    await updateDoc(roomRef(roomId), { notice: deleteField() })
+    return getRoom(roomId)
+  }
+  if (trimmed.length > NOTICE_MAX_LEN) throw new Error('notice is too long')
+
+  await updateDoc(roomRef(roomId), {
+    notice: {
+      text: trimmed,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor,
+    },
+  })
   return getRoom(roomId)
 }
 
@@ -1179,6 +1238,12 @@ export async function setRoomDisplayName(
   const memberKey = await resolveMemberKey(roomId, name, cid)
   const st = await getMembershipStatus(roomId, name, cid)
   if (room.policy !== 'open_link' && st !== 'member') throw new Error('Not a member')
+
+  if (isLegacyOpenchatRoomOwnerBinding(room) && isOpenchatRoomOwner(room, memberKey, cid)) {
+    throw new Error(
+      '방장 표시 이름은 바꿀 수 없습니다. 이 방은 생성 시 닉네임으로만 방장이 연결되어 있습니다. 계정 연동(OAuth) 전까지 변경할 수 없어요.',
+    )
+  }
 
   const memberSnap = await getMemberDoc(roomId, name, cid)
   const previousDisplayName = memberSnap?.exists()

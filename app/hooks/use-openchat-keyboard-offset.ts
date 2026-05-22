@@ -9,7 +9,7 @@ const SAFE_BOTTOM_VAR = '--openchat-safe-bottom'
 function getComposeHeightPx() {
   const raw = getComputedStyle(document.documentElement).getPropertyValue('--openchat-compose-h').trim()
   const n = parseFloat(raw)
-  return Number.isFinite(n) && n > 0 ? n : 84
+  return Number.isFinite(n) && n > 0 ? n : 72
 }
 
 function isComposeFocused() {

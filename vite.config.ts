@@ -6,7 +6,7 @@ import { defineConfig, loadEnv } from 'vite'
 
 import tsconfigPaths from 'vite-tsconfig-paths'
 
-
+import { openchatLinkPreviewPlugin } from './vite-plugin-openchat-link-preview'
 
 export default defineConfig(({ mode }) => {
 
@@ -40,7 +40,7 @@ export default defineConfig(({ mode }) => {
 
     },
 
-    plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
+    plugins: [tailwindcss(), reactRouter(), tsconfigPaths(), openchatLinkPreviewPlugin()],
 
   }
 
