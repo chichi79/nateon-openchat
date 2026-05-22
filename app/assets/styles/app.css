@@ -516,6 +516,18 @@ textarea.input {
     bottom: auto;
   }
 
+  /* 대화 검색 키보드 — 메시지 입력창은 하단 고정(키패드 위로 끌어올리지 않음) */
+  html[data-openchat-chat-search-open] .openchat-compose-dock {
+    top: auto;
+    bottom: calc(var(--openchat-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  }
+
+  html[data-openchat-chat-search-open] .openchat-fab-stack-above-compose {
+    bottom: calc(
+      var(--openchat-compose-h, 4.5rem) + var(--openchat-fab-stack-gap, 0.5rem) +
+        var(--openchat-safe-bottom, env(safe-area-inset-bottom, 0px))
+    );
+  }
 
   .openchat-banner-above-compose {
     /* 입력창 top(compose-top) 바로 위에 하단 맞춤 */

@@ -1424,6 +1424,17 @@ export default function RoomDetailPage() {
   }, [chatSearchQuery, chatSearchMatchIds.length])
 
   useEffect(() => {
+    const root = document.documentElement
+    if (chatSearchOpen) {
+      root.setAttribute('data-openchat-chat-search-open', '')
+    } else {
+      root.removeAttribute('data-openchat-chat-search-open')
+    }
+    syncOpenchatKeyboardLayout(composeBarRef.current)
+    return () => root.removeAttribute('data-openchat-chat-search-open')
+  }, [chatSearchOpen])
+
+  useEffect(() => {
     if (!chatSearchOpen) return
     const t = window.setTimeout(() => chatSearchInputRef.current?.focus(), 0)
     return () => window.clearTimeout(t)
@@ -1965,6 +1976,7 @@ export default function RoomDetailPage() {
               setChatSearchQuery('')
             }}
             inputRef={chatSearchInputRef}
+            onSearchFocus={() => syncOpenchatKeyboardLayout(composeBarRef.current)}
           />
         ) : null}
       </div>

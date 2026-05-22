@@ -9,6 +9,7 @@ type OpenchatChatSearchBarProps = {
   onNext: () => void
   onClose: () => void
   inputRef?: RefObject<HTMLInputElement | null>
+  onSearchFocus?: () => void
 }
 
 export function OpenchatChatSearchBar({
@@ -20,6 +21,7 @@ export function OpenchatChatSearchBar({
   onNext,
   onClose,
   inputRef,
+  onSearchFocus,
 }: OpenchatChatSearchBarProps) {
   const hasQuery = query.trim().length > 0
   const pos = matchCount > 0 ? matchIndex + 1 : 0
@@ -50,6 +52,7 @@ export function OpenchatChatSearchBar({
           aria-label='대화 검색'
           enterKeyHint='search'
           autoComplete='off'
+          onFocus={onSearchFocus}
         />
       </div>
       <span className='openchat-chat-search-count' aria-live='polite'>

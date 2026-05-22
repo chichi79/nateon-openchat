@@ -17,16 +17,27 @@ function isComposeFocused() {
   return el instanceof HTMLElement && Boolean(el.closest('.openchat-compose-dock'))
 }
 
+function isChatSearchActive() {
+  return document.documentElement.hasAttribute('data-openchat-chat-search-open')
+}
+
+function isChatSearchFocused() {
+  const el = document.activeElement
+  return el instanceof HTMLElement && Boolean(el.closest('.openchat-chat-search-bar'))
+}
+
 /** 모바일 입력창(또는 compose 내부) 포커스 여부 */
 export function isOpenchatComposeFocused() {
   return isComposeFocused()
 }
 
-/** 키보드가 올라와 있는 것으로 보이는지 (visualViewport + 포커스) */
+/** 키보드가 올라와 있는 것으로 보이는지 (메시지 입력 기준) */
 export function isOpenchatKeyboardLikelyOpen() {
   if (typeof window === 'undefined') return false
   if (!isOpenchatMobileChatViewport()) return false
   if (isComposeFocused()) return true
+  /* 대화 검색 키보드는 메시지 입력창과 분리 */
+  if (isChatSearchActive() && !isComposeFocused()) return false
   const vv = window.visualViewport
   if (!vv) return false
   return vv.height < window.innerHeight * 0.85
@@ -99,6 +110,14 @@ function syncKeyboardLayout(composeEl?: HTMLElement | null) {
 
   const vv = window.visualViewport
   if (!vv) {
+    root.style.setProperty(KEYBOARD_OFFSET_VAR, '0px')
+    root.style.removeProperty(COMPOSE_TOP_VAR)
+    root.style.removeProperty(SAFE_BOTTOM_VAR)
+    return
+  }
+
+  /* 대화 검색 중: 메시지 입력창은 화면 하단 고정(검색 키패드에 붙이지 않음) */
+  if (isChatSearchActive() && !isComposeFocused()) {
     root.style.setProperty(KEYBOARD_OFFSET_VAR, '0px')
     root.style.removeProperty(COMPOSE_TOP_VAR)
     root.style.removeProperty(SAFE_BOTTOM_VAR)
