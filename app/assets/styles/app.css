@@ -1430,6 +1430,10 @@ html[data-theme='dark'] .openchat-compose-box {
   transition: opacity 0.15s ease;
 }
 
+.openchat-compose-box--sending .openchat-compose-input {
+  opacity: 0.85;
+}
+
 .openchat-compose-input {
   width: 100%;
   min-height: 2.375rem;

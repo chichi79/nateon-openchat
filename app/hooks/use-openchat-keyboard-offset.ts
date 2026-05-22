@@ -39,6 +39,35 @@ export function blurOpenchatCompose() {
   }
 }
 
+/** 전송 후 키보드 유지 — 모바일 채팅방은 항상, PC는 포커스·키보드 열림 시 */
+export function shouldRetainComposeKeyboardAfterSend() {
+  if (isOpenchatMobileChatViewport()) return true
+  return isOpenchatComposeFocused() || isOpenchatKeyboardLikelyOpen()
+}
+
+function resolveComposeTextarea() {
+  const el = document.querySelector('.openchat-compose-input')
+  return el instanceof HTMLTextAreaElement ? el : null
+}
+
+/** iOS 등: 전송 직후·완료 후 textarea 포커스를 여러 번 재시도 */
+export function retainOpenchatComposeFocus(composeEl?: HTMLElement | null) {
+  if (typeof window === 'undefined') return
+
+  const focusOnce = () => {
+    const ta = resolveComposeTextarea()
+    if (!ta || ta.disabled) return
+    ta.focus({ preventScroll: true })
+    syncOpenchatKeyboardLayout(composeEl ?? null)
+  }
+
+  focusOnce()
+  requestAnimationFrame(focusOnce)
+  for (const ms of [0, 50, 120, 250, 400, 600]) {
+    window.setTimeout(focusOnce, ms)
+  }
+}
+
 function resolveComposeDock(explicit?: HTMLElement | null) {
   if (explicit) return explicit
   const el = document.querySelector('.openchat-compose-dock')

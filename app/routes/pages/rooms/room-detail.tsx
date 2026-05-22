@@ -109,7 +109,8 @@ import { useFocusTrap } from '@/hooks/use-focus-trap'
 import {
   blurOpenchatCompose,
   isOpenchatComposeFocused,
-  isOpenchatKeyboardLikelyOpen,
+  retainOpenchatComposeFocus,
+  shouldRetainComposeKeyboardAfterSend,
   syncOpenchatKeyboardLayout,
   useOpenchatKeyboardOffset,
 } from '@/hooks/use-openchat-keyboard-offset'
@@ -761,7 +762,6 @@ export default function RoomDetailPage() {
 
   useEffect(() => {
     if (fetcher.state === 'idle' && fetcher.data?.message) {
-      formRef.current?.reset()
       setComposeText('')
       flushTypingOff()
       setReplyTo(null)
@@ -769,12 +769,11 @@ export default function RoomDetailPage() {
       setSelectedSticker(null)
       const retainFocus = keyboardWasOpenOnSendRef.current
       requestAnimationFrame(() => {
-        if (!isOpenchatMobileChatViewport() || retainFocus) {
-          composeTextareaRef.current?.focus({ preventScroll: true })
-        } else {
+        if (retainFocus) {
+          retainOpenchatComposeFocus(composeBarRef.current)
+        } else if (!isOpenchatMobileChatViewport()) {
           blurOpenchatCompose()
         }
-        syncOpenchatKeyboardLayout(composeBarRef.current)
       })
     }
   }, [fetcher.data?.message, fetcher.state, flushTypingOff])
@@ -1371,11 +1370,8 @@ export default function RoomDetailPage() {
 
     const tick = () => {
       if (retainFocus) {
-        composeTextareaRef.current?.focus({ preventScroll: true })
-      } else {
-        blurOpenchatCompose()
+        retainOpenchatComposeFocus(composeBarRef.current)
       }
-      syncOpenchatKeyboardLayout(composeBarRef.current)
       const chatScroll = chatScrollRef.current
       if (chatScroll) {
         chatScroll.scrollTop = chatScroll.scrollHeight
@@ -1390,6 +1386,7 @@ export default function RoomDetailPage() {
     window.setTimeout(tick, 50)
     window.setTimeout(tick, 150)
     window.setTimeout(tick, 300)
+    window.setTimeout(tick, 600)
   }, [])
 
   const scrollToQuotedMessage = useCallback((messageId: string) => {
@@ -1450,13 +1447,12 @@ export default function RoomDetailPage() {
 
   const submitCompose = useCallback(() => {
     if (!canPost || !canSendCompose || isComposeSending) return
-    keyboardWasOpenOnSendRef.current = isOpenchatKeyboardLikelyOpen()
+    keyboardWasOpenOnSendRef.current = shouldRetainComposeKeyboardAfterSend()
     scrollAfterOwnSendRef.current = true
     formRef.current?.requestSubmit()
     if (keyboardWasOpenOnSendRef.current) {
-      composeTextareaRef.current?.focus({ preventScroll: true })
+      retainOpenchatComposeFocus(composeBarRef.current)
     }
-    syncOpenchatKeyboardLayout(composeBarRef.current)
   }, [canPost, canSendCompose, isComposeSending])
 
   useLayoutEffect(() => {
@@ -2863,7 +2859,7 @@ export default function RoomDetailPage() {
             className='flex flex-col gap-1 pb-1 md:gap-2 md:pb-2'
             method='post'
             onSubmit={() => {
-              keyboardWasOpenOnSendRef.current = isOpenchatKeyboardLikelyOpen()
+              keyboardWasOpenOnSendRef.current = shouldRetainComposeKeyboardAfterSend()
               scrollAfterOwnSendRef.current = true
             }}
           >
@@ -3058,8 +3054,7 @@ export default function RoomDetailPage() {
                         ? `${labelForMessage(replyTo)}님에게 답장…`
                         : '메시지를 입력하세요.'
                   }
-                  disabled={!canPost || isComposeSending}
-                  readOnly={isComposeSending}
+                  disabled={!canPost}
                   aria-busy={isComposeSending}
                   className='openchat-compose-input'
                   autoComplete='off'
@@ -3178,6 +3173,8 @@ export default function RoomDetailPage() {
                   aria-label={isComposeSending ? '전송 중' : '보내기'}
                   aria-busy={isComposeSending}
                   onPointerDown={(e) => e.preventDefault()}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onTouchStart={(e) => e.preventDefault()}
                   onClick={submitCompose}
                 >
                   {isComposeSending ? (
